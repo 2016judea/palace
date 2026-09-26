@@ -3,3 +3,4 @@ state/.sysprompt-*.md
 .vercel
 site/.vercel
 __pycache__/
+state/last_tick.json
