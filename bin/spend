@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Record a programmatic expense outside the model, BEFORE incurring it.
+    bin/spend 0.85 "SAM.gov extract batch, 40 notices"   [--by mason]
+"""
+import json, sys, os, datetime as dt
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+usd = float(sys.argv[1]); note = sys.argv[2]
+by = sys.argv[sys.argv.index("--by") + 1] if "--by" in sys.argv else "resident"
+with open("state/ledger.jsonl", "a") as f:
+    f.write(json.dumps({"ts": dt.datetime.now().isoformat(timespec="seconds"), "kind": "external", "usd": usd, "resident": by, "note": note}) + "\n")
+print(f"recorded ${usd:.2f}: {note}")

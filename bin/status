@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""The palace in the terminal."""
+import json, os, glob, datetime as dt
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def jl(p): return [json.loads(l) for l in open(p) if l.strip()] if os.path.exists(p) else []
+cfg = json.load(open("palace.json")); day = dt.date.today().isoformat()
+rev = sum(r["usd"] for r in jl("state/revenue.jsonl"))
+spent = sum(r["usd"] for r in jl("state/ledger.jsonl") if r["ts"].startswith(day))
+ticks = [t for t in jl("state/ticks.jsonl") if t["ts"].startswith(day)]
+last = json.load(open("state/last_tick.json")) if os.path.exists("state/last_tick.json") else {}
+floor = 0
+while rev >= 10 ** (floor + 1): floor += 1
+print(f"THE PALACE  ${rev:,.0f} of $1,000,000,000 · floor {floor} of 9")
+print(f"today       ${spent:.2f} of ${cfg['budget']['daily_usd']} · {len(ticks)} ticks · last: {last.get('mode','—')} {last.get('resident','')} {last.get('ts','')}")
+for t in ticks: print(f"  {t['ts'][11:16]} {t['resident']:<9} ${t['usd']:<6} {t['mode']:<7} {t['act']}")
+ob = sorted(glob.glob("state/outbox/*.md"))
+print(f"needs Aidan {len(ob)}"); [print("  " + os.path.basename(p)) for p in ob]

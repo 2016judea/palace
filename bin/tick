@@ -1,0 +1,235 @@
+#!/usr/bin/env python3
+"""One tick of the dungeon: wake one resident, bound its spend, record everything.
+
+    bin/tick              # the scheduler picks the resident
+    bin/tick merchant     # force one
+    DRY=1 bin/tick        # print the brief, spend nothing
+
+Exit 0 always: the loop decides what to do next from state/last_tick.json.
+"""
+import json, os, subprocess, sys, time, datetime as dt, fcntl, shutil, re
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.chdir(ROOT)
+CFG = json.load(open("palace.json"))
+os.environ.setdefault("TZ", CFG.get("timezone", "America/Chicago"))
+time.tzset()
+STATE = "state"
+LEDGER = f"{STATE}/ledger.jsonl"
+TICKS = f"{STATE}/ticks.jsonl"
+LAST = f"{STATE}/last_tick.json"
+DRY = os.environ.get("DRY") == "1"
+
+
+def now():
+    return dt.datetime.now()
+
+
+def today():
+    return now().strftime("%Y-%m-%d")
+
+
+def yesterday():
+    return (now() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def read_jsonl(path):
+    if not os.path.exists(path):
+        return []
+    out = []
+    for line in open(path):
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return out
+
+
+def append_jsonl(path, obj):
+    with open(path, "a") as f:
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+
+def revenue_total():
+    return sum(float(r.get("usd", 0)) for r in read_jsonl(f"{STATE}/revenue.jsonl"))
+
+
+def spent_today():
+    day = today()
+    fixed = float(CFG["budget"].get("fixed_daily_usd", 0))
+    return fixed + sum(float(r.get("usd", 0)) for r in read_jsonl(LEDGER) if r.get("ts", "").startswith(day))
+
+
+def ticks_today():
+    day = today()
+    return [t for t in read_jsonl(TICKS) if t.get("ts", "").startswith(day)]
+
+
+def online():
+    try:
+        r = subprocess.run(["curl", "-sI", "--max-time", "6", "https://api.anthropic.com/"], capture_output=True)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def finish(mode, resident=None, **extra):
+    rec = {"ts": now().isoformat(timespec="seconds"), "mode": mode, "resident": resident, **extra}
+    json.dump(rec, open(LAST, "w"), indent=1)
+    print(f"[tick] {mode}" + (f" {resident}" if resident else "") + (f" {extra}" if extra else ""))
+    return 0
+
+
+def pick_resident():
+    done = {t["resident"] for t in ticks_today() if t.get("mode") == "worked"}
+    if "god" not in done:
+        return "god"
+    if "steward" not in done:
+        return "steward"
+    rot = CFG["rotation"]
+    n = len([t for t in ticks_today() if t.get("mode") == "worked" and t["resident"] in rot])
+    return rot[n % len(rot)]
+
+
+def caps_for(resident):
+    daily = CFG.get("daily", {}).get(resident)
+    if daily:
+        return float(daily["cap_usd"]), daily.get("effort", CFG.get("effort"))
+    return float(CFG["budget"]["tick_cap_usd"]), CFG.get("effort")
+
+
+def build_prompts(resident, cap, remaining):
+    floor = 0
+    rev = revenue_total()
+    while rev >= 10 ** (floor + 1):
+        floor += 1
+    t = today(); y = yesterday()
+    n = len(ticks_today()) + 1
+    sysprompt = open("PALACE.md").read() + "\n\n---\n\n" + open(f"residents/{resident}.md").read()
+    sysprompt += (
+        f"\n\n---\n\n## Today\n\n- Date: {t} ({now().strftime('%A')}), tick {n}. You are **{resident.title()}**.\n"
+        f"- Revenue to date: ${rev:,.0f}. Floor {floor} of 9.\n"
+        f"- This tick's hard cap: ${cap:.2f}. Left in today's purse after it: ${max(remaining - cap, 0):.2f} of ${CFG['budget']['daily_usd']}.\n"
+        f"- The palace repo is the working directory: {ROOT}\n"
+    )
+    if resident == "god":
+        brief = (
+            f"Speak. Read journal/{y}.md, the tail of state/ticks.jsonl, state/revenue.jsonl, state/next.md, then ONE corpus. "
+            f"Write state/word.md (overwrite, frontmatter spoken + corpus) and append the same word under a '## {t}' heading in journal/words.md. "
+            f"Commit those two files by path and push. End with the ACT line."
+        )
+    elif resident == "steward":
+        brief = (
+            f"Keep the books. Work your six steps in order for {t}. Append your journal entry to journal/{t}.md, rewrite state/next.md, "
+            f"commit state/ and journal/ by path, push. End with the ACT line."
+        )
+    else:
+        brief = (
+            f"Tick {n} of {t}. Read, in this order, before acting: state/word.md; state/next.md; journal/{t}.md and journal/{y}.md; "
+            f"paths.json; state/approved/ (anything Aidan said yes to). Then do ONE unit of work per your charter, complete and pushed. "
+            f"Then append your entry to journal/{t}.md, rewrite state/next.md, commit the palace by path (journal/, state/, paths.json) and push. "
+            f"If you worked in another repo, commit there by path and push too. End with the ACT line."
+        )
+    return sysprompt, brief
+
+
+def run_claude(resident, sysprompt, brief, cap, effort):
+    tmp = f"{STATE}/.sysprompt-{resident}.md"
+    open(tmp, "w").write(sysprompt)
+    cmd = ["claude", "-p", brief, "--output-format", "json", "--max-budget-usd", f"{cap:.2f}",
+           "--dangerously-skip-permissions", "--append-system-prompt-file", tmp]
+    if CFG.get("model"):
+        cmd += ["--model", CFG["model"]]
+    if effort:
+        cmd += ["--effort", effort]
+    for p in CFG["repos"].values():
+        cmd += ["--add-dir", p]
+    cmd += ["--add-dir", os.path.expanduser("~/.claude/skills"), "--add-dir", os.path.expanduser("~/Desktop/ideas")]
+    env = dict(os.environ)
+    env.pop("CLAUDECODE", None)  # a tick launched from inside a session must still be allowed to run claude
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=CFG["cadence"]["tick_timeout_seconds"], env=env)
+        raw = r.stdout
+    except subprocess.TimeoutExpired as e:
+        raw = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
+        return {"subtype": "timeout", "total_cost_usd": None, "result": "", "is_error": True, "duration_ms": int((time.time() - t0) * 1000)}, raw
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    try:
+        return json.loads(raw), raw
+    except json.JSONDecodeError:
+        return {"subtype": "unparseable", "total_cost_usd": None, "result": raw[-2000:], "is_error": True,
+                "duration_ms": int((time.time() - t0) * 1000), "stderr": r.stderr[-2000:]}, raw
+
+
+def act_line(result_text):
+    m = re.findall(r"^ACT:\s*(.+)$", result_text or "", flags=re.M)
+    if m:
+        return m[-1].strip()[:160]
+    first = (result_text or "").strip().splitlines()
+    return (first[0][:160] if first else "(no report)")
+
+
+def git_commit_push(paths, msg):
+    subprocess.run(["git", "add", "--"] + paths, capture_output=True)
+    r = subprocess.run(["git", "diff", "--cached", "--quiet"])
+    if r.returncode == 0:
+        return "nothing to commit"
+    subprocess.run(["git", "commit", "-q", "-m", msg], capture_output=True)
+    p = subprocess.run(["git", "push", "-q"], capture_output=True, text=True)
+    return "pushed" if p.returncode == 0 else f"push failed: {p.stderr.strip()[-200:]}"
+
+
+def render_and_deploy():
+    subprocess.run([sys.executable, "bin/render"], capture_output=True)
+    if CFG.get("deploy", {}).get("vercel") and not DRY and online():
+        subprocess.run(["npx", "--yes", "vercel", "--prod", "--yes"], cwd="site", capture_output=True, timeout=300)
+
+
+def main():
+    lock = open(f"{STATE}/.tick.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return finish("busy")
+    if revenue_total() >= CFG["goal_usd"]:
+        return finish("ascended")
+    if not online():
+        return finish("dark")
+    remaining = float(CFG["budget"]["daily_usd"]) - spent_today()
+    resident = sys.argv[1] if len(sys.argv) > 1 else pick_resident()
+    cap, effort = caps_for(resident)
+    if remaining < float(CFG["budget"]["floor_usd"]):
+        return finish("asleep", remaining=round(remaining, 2))
+    cap = min(cap, remaining)
+    sysprompt, brief = build_prompts(resident, cap, remaining)
+    if DRY:
+        print(brief); print(f"-- cap ${cap:.2f}, effort {effort}, model {CFG.get('model') or 'default'}")
+        return finish("dry", resident)
+    ts = now().isoformat(timespec="seconds")
+    res, raw = run_claude(resident, sysprompt, brief, cap, effort)
+    cost = res.get("total_cost_usd")
+    if cost is None:  # a timeout or an unparseable reply still spent; charge the cap so the purse stays honest
+        cost = cap
+    append_jsonl(LEDGER, {"ts": ts, "kind": "model", "usd": round(float(cost), 4), "resident": resident,
+                          "session": res.get("session_id"), "turns": res.get("num_turns"), "subtype": res.get("subtype")})
+    act = act_line(res.get("result", ""))
+    mode = "worked" if not res.get("is_error") or res.get("subtype") == "error_max_budget_usd" else "failed"
+    rec = {"ts": ts, "resident": resident, "mode": mode, "usd": round(float(cost), 4), "turns": res.get("num_turns"),
+           "minutes": round((res.get("duration_ms") or 0) / 60000, 1), "subtype": res.get("subtype"), "act": act}
+    append_jsonl(TICKS, rec)
+    os.makedirs("state/transcripts", exist_ok=True)
+    open(f"state/transcripts/{ts.replace(':', '')}-{resident}.txt", "w").write(res.get("result", "") or raw[-4000:])
+    render_and_deploy()
+    g = git_commit_push(["state", "journal", "paths.json", "site"], f"{resident.title()} tick: {act}")
+    return finish(mode, resident, usd=rec["usd"], act=act, git=g)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

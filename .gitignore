@@ -1,0 +1,5 @@
+state/.tick.lock
+state/.sysprompt-*.md
+.vercel
+site/.vercel
+__pycache__/

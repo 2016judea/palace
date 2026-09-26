@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Aidan says yes to an outbox item.   bin/approve <slug-or-filename> ["note"]
+Moves state/outbox/<file> to state/approved/ with an approved: stamp; the next resident acts on it.
+"""
+import sys, os, glob, datetime as dt, shutil
+os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+key = sys.argv[1]; note = sys.argv[2] if len(sys.argv) > 2 else ""
+hits = [p for p in glob.glob("state/outbox/*.md") if key in os.path.basename(p)]
+if len(hits) != 1:
+    sys.exit(f"{len(hits)} matches for {key!r}: {hits}")
+src = hits[0]; dst = "state/approved/" + os.path.basename(src)
+body = open(src).read()
+stamp = f"approved: {dt.date.today().isoformat()}\n" + (f"approval_note: {note}\n" if note else "")
+body = body.replace("---\n", "---\n" + stamp, 1) if body.startswith("---\n") else "---\n" + stamp + "---\n" + body
+open(dst, "w").write(body); os.remove(src)
+print(f"approved -> {dst}")
