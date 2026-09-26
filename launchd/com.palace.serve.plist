@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.palace.serve</string>
+<key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>/Users/aidan/Desktop/palace/bin/serve</string></array>
+<key>KeepAlive</key><true/><key>RunAtLoad</key><true/>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>/Users/aidan</string></dict>
+<key>StandardOutPath</key><string>/Users/aidan/Library/Logs/palace.serve.log</string>
+<key>StandardErrorPath</key><string>/Users/aidan/Library/Logs/palace.serve.log</string>
+</dict></plist>

@@ -200,6 +200,8 @@ def main():
         return finish("busy")
     if revenue_total() >= CFG["goal_usd"]:
         return finish("ascended")
+    if os.path.exists(f"{STATE}/PAUSED"):
+        return finish("paused")
     if not online():
         return finish("dark")
     remaining = float(CFG["budget"]["daily_usd"]) - spent_today()
@@ -213,6 +215,7 @@ def main():
         print(brief); print(f"-- cap ${cap:.2f}, effort {effort}, model {CFG.get('model') or 'default'}")
         return finish("dry", resident)
     ts = now().isoformat(timespec="seconds")
+    json.dump({"ts": ts, "mode": "working", "resident": resident, "next": resident}, open(LAST, "w"), indent=1)
     res, raw = run_claude(resident, sysprompt, brief, cap, effort)
     cost = res.get("total_cost_usd")
     if cost is None:  # a timeout or an unparseable reply still spent; charge the cap so the purse stays honest

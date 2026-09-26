@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""The palace, live, on the laptop: http://localhost:4477
+Reads state on every request; the buttons write to disk. launchd keeps it up."""
+import os, sys, json, glob, html, re, shutil, subprocess, datetime as dt, importlib.util
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+spec = importlib.util.spec_from_file_location("render", os.path.join(ROOT, "bin/render"), loader=importlib.machinery.SourceFileLoader("render", os.path.join(ROOT, "bin/render")))
+R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+PORT = int(os.environ.get("PALACE_PORT", 4477))
+
+def page(title, body):
+    return f"<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title><style>body{{background:#0d0c0a;color:#e9e2d3;font:15.5px/1.5 -apple-system,Inter,system-ui,sans-serif;max-width:820px;margin:0 auto;padding:24px 16px}}a{{color:#d8a94a}}pre{{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,monospace;background:#171512;padding:14px;border-radius:8px}}h3{{color:#d8a94a;font-size:14px}}</style></head><body><p><a href='/'>← the palace</a></p>{body}</body></html>"
+
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send(self, body, code=200, ctype="text/html; charset=utf-8"):
+        b = body.encode(); self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def redirect(self, to="/"):
+        self.send_response(303); self.send_header("Location", to); self.end_headers()
+    def do_GET(self):
+        p = unquote(self.path.split("?")[0])
+        if p == "/": return self.send(R.render(live=True))
+        if p == "/api/state": return self.send(json.dumps({"last": json.load(open("state/last_tick.json")) if os.path.exists("state/last_tick.json") else {}, "paused": os.path.exists("state/PAUSED")}), ctype="application/json")
+        if p.startswith("/outbox/"):
+            f = "state/outbox/" + os.path.basename(p[8:])
+            if os.path.exists(f):
+                t = open(f).read()
+                return self.send(page(f, f"<h3>{html.escape(os.path.basename(f))}</h3><pre>{html.escape(t)}</pre><form method=post action=/approve><input type=hidden name=f value='{html.escape(os.path.basename(f))}'><button>approve</button></form><form method=post action=/decline><input type=hidden name=f value='{html.escape(os.path.basename(f))}'><button>decline</button></form>"))
+        if p.startswith("/transcript/"):
+            f = "state/transcripts/" + os.path.basename(p[12:]) + ".txt"
+            if os.path.exists(f): return self.send(page(f, f"<h3>{html.escape(os.path.basename(f))}</h3><pre>{html.escape(open(f).read())}</pre>"))
+        if p.startswith("/journal/"):
+            f = "journal/" + os.path.basename(p[9:]) + ".md"
+            if os.path.exists(f): return self.send(page(f, R.md(open(f).read())))
+        if p == "/ledger":
+            rows = R.jl("state/ledger.jsonl")[-200:]
+            return self.send(page("ledger", "<pre>" + html.escape("\n".join(f"{r['ts']}  {r['kind']:<8} ${r['usd']:<7} {r.get('resident','')}  {r.get('note') or r.get('subtype') or ''}" for r in reversed(rows))) + "</pre>"))
+        self.send(page("?", "<p>nothing here</p>"), 404)
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0)); q = parse_qs(self.rfile.read(n).decode()); p = self.path
+        f = os.path.basename(q.get("f", [""])[0])
+        if p == "/approve" and f and os.path.exists("state/outbox/" + f):
+            subprocess.run([sys.executable, "bin/approve", f], capture_output=True)
+        elif p == "/decline" and f and os.path.exists("state/outbox/" + f):
+            os.makedirs("state/declined", exist_ok=True); shutil.move("state/outbox/" + f, "state/declined/" + f)
+        elif p == "/pause": open("state/PAUSED", "w").write(dt.datetime.now().isoformat())
+        elif p == "/resume" and os.path.exists("state/PAUSED"): os.remove("state/PAUSED")
+        elif p == "/wake":
+            r = q.get("r", ["merchant"])[0]
+            if r in ("god", "steward", "merchant", "mason", "scout"):
+                subprocess.Popen([sys.executable, "bin/tick", r], stdout=open(os.path.expanduser("~/Library/Logs/palace.log"), "a"), stderr=subprocess.STDOUT)
+        elif p == "/purse":
+            try:
+                v = float(q.get("daily_usd", [""])[0]); cfg = json.load(open("palace.json")); cfg["budget"]["daily_usd"] = v
+                json.dump(cfg, open("palace.json", "w"), indent=2)
+            except ValueError: pass
+        self.redirect("/")
+
+if __name__ == "__main__":
+    print(f"the palace at http://localhost:{PORT}"); ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
