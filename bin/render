@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""state/ -> HTML. Web first (Aidan manages it on the laptop); phone still works.
+"""state/ -> HTML. A window, not a console (Aidan, 2026-09-26). Web first; phone still works.
     bin/render            # writes site/index.html, the read-only copy for Vercel
-    imported by bin/serve # render(live=True) adds the controls that write to disk
+    imported by bin/serve # render(live=True) adds pause/purse and the live ticker
 No names of people or companies on the page: the Vercel copy is public."""
 import json, os, glob, html, re, datetime as dt
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,71 +24,83 @@ def fm_split(text):
     for line in m.group(1).splitlines():
         if ":" in line: k, v = line.split(":", 1); d[k.strip()] = v.strip()
     return d, m.group(2)
+def _locked(path):
+    import fcntl
+    try:
+        f = open(path, "a"); fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB); fcntl.flock(f, fcntl.LOCK_UN); f.close(); return False
+    except BlockingIOError: return True
+
+def live_tail(n=8):
+    rows = jl(os.path.join(ROOT, "state/live.jsonl"))[-n:]
+    return [{"t": r["ts"][11:19], "k": r["kind"], "x": r["text"]} for r in rows]
 
 def render(live=False):
     os.chdir(ROOT)
-    CFG = json.load(open("palace.json"))
+    CFG = json.load(open("palace.json")); B = CFG["budget"]
     now = dt.datetime.now(); day = now.date().isoformat(); yday = (now - dt.timedelta(days=1)).date().isoformat()
-    rev = sum(float(r["usd"]) for r in jl("state/revenue.jsonl")); daily = CFG["budget"]["daily_usd"]
+    rev = sum(float(r["usd"]) for r in jl("state/revenue.jsonl") if r.get("kind", "revenue") == "revenue")
     spent = sum(float(r["usd"]) for r in jl("state/ledger.jsonl") if r["ts"].startswith(day))
+    spent_y = sum(float(r["usd"]) for r in jl("state/ledger.jsonl") if r["ts"].startswith(yday))
     ticks = [t for t in jl("state/ticks.jsonl") if t["ts"].startswith(day)]
+    sends = jl("state/sends.jsonl"); sends_t = sum(int(s.get("n", 1)) for s in sends if s["ts"].startswith(day))
     last = json.load(open("state/last_tick.json")) if os.path.exists("state/last_tick.json") else {}
+    bucket = json.load(open("state/bucket.json")) if os.path.exists("state/bucket.json") else {"balance": 0}
+    if bucket.get("ts"):
+        el = (now - dt.datetime.fromisoformat(bucket["ts"])).total_seconds(); bal = min(B["bucket_cap_usd"], bucket["balance"] + max(el, 0) * B["daily_usd"] / 86400)
+    else: bal = bucket["balance"]
     paused = os.path.exists("state/PAUSED"); running = os.path.exists("state/.tick.lock") and _locked("state/.tick.lock")
     floor = 0
     while rev >= 10 ** (floor + 1): floor += 1
     age_min = (now - dt.datetime.fromisoformat(last["ts"])).total_seconds() / 60 if last.get("ts") else None
     mode = last.get("mode")
     if rev >= CFG["goal_usd"]: light, cls = "in heaven", "gold"
-    elif paused: light, cls = "paused by Aidan", "dim"
-    elif running: light, cls = f"green fields · {last.get('next') or 'a resident'} is working now", "green"
+    elif paused: light, cls = "paused", "dim"
+    elif running: light, cls = f"green fields · {last.get('next') or 'a resident'} at work", "green"
     elif mode == "dark": light, cls = "no wifi · waiting", "dim"
-    elif mode == "asleep": light, cls = "purse empty · asleep till midnight", "dim"
-    elif age_min is not None and age_min > 75: light, cls = "lid closed · they wake when it opens", "dim"
+    elif mode == "empty": light, cls = f"purse refilling · ${bal:.2f} of ${B['bucket_cap_usd']}", "dim"
+    elif age_min is not None and age_min > 90: light, cls = "lid closed · they wake when it opens", "dim"
     elif mode in ("worked", "failed", "busy", "dry"): light, cls = "green fields · between ticks", "green"
     else: light, cls = "not yet woken", "dim"
     seen = f"last tick {dt.datetime.fromisoformat(last['ts']).strftime('%-I:%M %p')}" if last.get("ts") else ""
     fm, word = fm_split(open("state/word.md").read() if os.path.exists("state/word.md") else "")
-    outbox = []
-    for p in sorted(glob.glob("state/outbox/*.md")):
-        d, _ = fm_split(open(p).read()); age = (now - dt.datetime.fromtimestamp(os.path.getmtime(p))).days
-        outbox.append((os.path.basename(p), d.get("title") or os.path.basename(p)[11:-3].replace("-", " "), d.get("kind", ""), d.get("usd", ""), age))
-    approved = [os.path.basename(p) for p in sorted(glob.glob("state/approved/*.md"))]
+    word_first = re.split(r"\n\s*\n", word.strip())[0] if word.strip() else ""
+    # court
+    pend = []
+    for p in sorted(glob.glob("state/court/*.md")):
+        d, _ = fm_split(open(p).read()); pend.append((d.get("title") or os.path.basename(p)[11:-3], d.get("kind", ""), d.get("filed", "")))
+    ruled = []
+    for p in sorted(glob.glob("state/court/ruled/*.md"), key=os.path.getmtime, reverse=True)[:6]:
+        d, body = fm_split(open(p).read()); r = d.get("ruling", ""); 
+        m = re.search(r"## Ruling\s*\n(.+?)(?:\n\s*\n|\Z)", body, re.S)
+        ruled.append((d.get("title") or os.path.basename(p)[11:-3], r.split(" ")[0] if r else "", (m.group(1).strip() if m else "")[:220]))
     paths = json.load(open("paths.json"))["paths"]
     jpath = f"journal/{day}.md" if os.path.exists(f"journal/{day}.md") else f"journal/{yday}.md"
     journal = open(jpath).read() if os.path.exists(jpath) else ""; jday = os.path.basename(jpath)[:-3] if journal else ""
-    pct = min(spent / daily, 1.0) * 100 if daily else 0
-    floors = [(9, "heaven", "$1B")] + [(n, "", f"${10**n:,.0f}") for n in range(8, 0, -1)] + [(0, "the dungeon", "")]
+    cal = [e for e in (json.load(open("state/calendar.json")) if os.path.exists("state/calendar.json") else []) if not e.get("done")][:6]
     L = live
-    def post(action, label, extra="", cls=""):
-        return f"<form method='post' action='/{action}' class='inl'>{extra}<button class='{cls}'>{label}</button></form>" if L else ""
     rows = "".join(
         f"<li><span class='t'>{esc(t['ts'][11:16])}</span><span class='r'>{esc(t['resident'])}</span>"
         f"<span class='a'>{esc(t.get('act',''))}{(' <a class=lnk href=/transcript/'+esc(t['ts'].replace(':',''))+'-'+esc(t['resident'])+'>report</a>') if L else ''}</span>"
-        f"<span class='c'>${t.get('usd',0):.2f}{(' · '+str(t['minutes'])+'m') if t.get('minutes') else ''}</span></li>"
-        for t in reversed(ticks)) or "<li class='empty'>no one has woken yet today</li>"
-    def ob_row(f, title, k, usd, age):
-        hid = "<input type=hidden name=f value=\"" + esc(f) + "\">"
-        name = ("<a class=lnk href=/outbox/" + esc(f) + ">" + esc(title) + "</a>") if L else esc(title)
-        money = ("$" + str(usd)) if usd else ""
-        old = (" · " + str(age) + "d") if age else ""
-        return ("<li><span class='k " + esc(k) + "'>" + esc(k or "ask") + "</span><span class='a'>" + name + "</span>"
-                "<span class='c'>" + esc(money) + old + "</span><span class='ctl'>" + post("approve", "approve", hid, "ok") + post("decline", "decline", hid, "") + "</span></li>")
-    ob = "".join(ob_row(*o) for o in outbox) or "<li class='empty'>nothing waits on you</li>"
-    ap = "".join(f"<li><span class='k'>yes</span><span class='a'>{esc(f[11:-3].replace('-',' '))}</span><span class='c'>waiting for a resident</span></li>" for f in approved)
+        f"<span class='c'>${t.get('usd',0):.2f}</span></li>" for t in reversed(ticks)) or "<li class='empty'>no one has woken yet today</li>"
+    court = "".join(f"<li><span class='k wait'>waiting</span><span class='a'>{esc(t)}</span><span class='c'>{esc(k)}</span></li>" for t, k, _ in pend)
+    court += "".join(f"<li><span class='k {esc(r)}'>{esc(r or 'ruled')}</span><span class='a'>{esc(t)}<div class='why'>{esc(why)}</div></span><span class='c'></span></li>" for t, r, why in ruled)
+    court = court or "<li class='empty'>no petitions</li>"
     mp = "".join(f"<li><span class='s {esc(p['status'])}'>{esc(p['status'])}</span><span class='a'>{esc(p['name'])}</span><span class='c'>{esc(p['grant'])}</span></li>" for p in paths)
-    stairs = "".join(f"<li class='{'here' if n == floor else ''} {'top' if n == 9 else ''}'><span class='n'>{n}</span><span class='l'>{esc(lbl)}</span><span class='v'>{esc(v)}</span></li>" for n, lbl, v in floors)
+    calrows = "".join(f"<li><span class='t'>{esc(e['date'][5:])}</span><span class='a'>{esc(e['what'][:120])}</span><span class='c'>{esc(e['path'])}</span></li>" for e in cal) or "<li class='empty'>nothing dated</li>"
+    ticker = "".join(f"<li><span class='t'>{esc(r['t'])}</span><span class='x {esc(r['k'])}'>{esc(r['x'])}</span></li>" for r in live_tail()) if running else ""
     controls = ""
     if L:
-        wake = "".join(f"<option value='{r}'>{r}</option>" for r in ["merchant", "mason", "scout", "steward", "god"])
-        controls = f"""<div class='controls'>
-{post('resume','resume','','ok') if paused else post('pause','pause','','warn')}
-<form method='post' action='/wake' class='inl'><select name='r'>{wake}</select><button {'disabled' if running else ''}>wake now</button></form>
-<form method='post' action='/purse' class='inl'><input name='daily_usd' type='number' step='1' min='0' value='{daily}' size='4'> <button>set purse</button></form>
-<a class='lnk' href='/journal/words'>every word</a> · <a class='lnk' href='/ledger'>ledger</a> · <a class='lnk' href='/journal/{esc(day)}'>today's journal</a>
-</div>"""
-    refresh = "<meta http-equiv='refresh' content='45'>" if L else ""
+        controls = (f"<div class='controls'>" + (f"<form method='post' action='/resume' class='inl'><button class='ok'>resume</button></form>" if paused else f"<form method='post' action='/pause' class='inl'><button class='warn'>pause</button></form>") +
+                    f"<form method='post' action='/purse' class='inl'><input name='daily_usd' type='number' step='1' min='0' value='{B['daily_usd']}' size='4'> <button>$/day</button></form>"
+                    f"<a class='lnk' href='/journal/words'>every word</a><a class='lnk' href='/ledger'>ledger</a><a class='lnk' href='/journal/{esc(day)}'>journal</a></div>")
+    livejs = """<script>
+async function tick(){try{const r=await fetch('/api/live');const d=await r.json();const el=document.getElementById('ticker');const w=document.getElementById('ticker-wrap');
+if(!d.running){w.style.display='none';return}w.style.display='';el.innerHTML=d.rows.map(r=>`<li><span class='t'>${r.t}</span><span class='x ${r.k}'>${r.x.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</span></li>`).join('');
+document.getElementById('light-text').textContent=d.light;}catch(e){}}
+setInterval(tick,4000);setInterval(()=>location.reload(),120000);</script>""" if L else ""
+    stairs_line = " · ".join(f"<b>{n}</b>" if n == floor else str(n) for n in range(0, 10))
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{refresh}
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>The Palace</title><meta name="robots" content="noindex">
 <meta name="description" content="Brick &amp; Mortar, run from the dungeon. Residents work until the ledger reads one billion; then they walk out together.">
 <style>
@@ -96,62 +108,47 @@ def render(live=False):
 @media (prefers-color-scheme: light){{:root:not([data-theme="dark"]){{--bg:#f3eee3;--stone:#faf7f0;--stone2:#efe9dc;--ink:#1d1a15;--mute:#6f6756;--line:#ddd5c4;--gold:#9a6f12;--green:#2f7d32;--red:#b6432c;--dim:#a49b88}}}}
 *{{box-sizing:border-box}}html{{-webkit-text-size-adjust:100%}}
 body{{margin:0;background:var(--bg);color:var(--ink);font:15.5px/1.45 -apple-system,"SF Pro Text",Inter,system-ui,sans-serif;padding:0 16px 48px;overflow-x:hidden}}
-.wrap{{max-width:1180px;margin:0 auto}}
-header{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:24px 0 6px;border-bottom:1px solid var(--line)}}
+.wrap{{max-width:1180px;margin:0 auto;min-width:0}}
+header{{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:22px 0 12px;border-bottom:1px solid var(--line)}}
 h1{{font:600 13px/1 ui-monospace,Menlo,monospace;letter-spacing:.22em;text-transform:uppercase;color:var(--mute);margin:0}}
 .light{{display:flex;align-items:center;gap:10px;font-size:14.5px}}.light .dot{{width:10px;height:10px;border-radius:50%;background:var(--dim);box-shadow:0 0 0 3px var(--stone2)}}
 .light.green .dot{{background:var(--green);box-shadow:0 0 12px var(--green)}}.light.gold .dot{{background:var(--gold);box-shadow:0 0 12px var(--gold)}}.light .seen{{color:var(--mute);font-size:13px}}
-.controls{{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--mute)}}
-.inl{{display:inline-flex;gap:6px;align-items:center;margin:0}}
-button,select,input{{font:inherit;font-size:13px;background:var(--stone2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px}}
-button{{cursor:pointer}}button.ok{{color:var(--green);border-color:var(--green)}}button.warn{{color:var(--red);border-color:var(--red)}}button:disabled{{opacity:.4;cursor:default}}
-.grid{{display:grid;grid-template-columns:1fr;gap:0 40px}}.grid>div,.wrap,ul.rows li,ul.rows li>*{{min-width:0}}.word{{overflow-wrap:anywhere}}@media(min-width:900px){{.grid{{grid-template-columns:minmax(300px,380px) 1fr}}}}
+.controls{{margin-left:auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--mute)}}.inl{{display:inline-flex;gap:6px;align-items:center;margin:0}}
+button,input{{font:inherit;font-size:13px;background:var(--stone2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px}}button{{cursor:pointer}}button.ok{{color:var(--green);border-color:var(--green)}}button.warn{{color:var(--red);border-color:var(--red)}}
+.top{{display:flex;gap:40px;align-items:flex-end;flex-wrap:wrap;padding:22px 0 4px}}
+.num{{font:600 clamp(44px,7vw,68px)/1 -apple-system,"SF Pro Display",Inter,sans-serif;letter-spacing:-.03em;font-variant-numeric:tabular-nums}}
+.sub{{color:var(--mute);font-size:14px}}.floors{{color:var(--dim);font:13px ui-monospace,Menlo,monospace;letter-spacing:.06em}}.floors b{{color:var(--green)}}
+.digest{{display:flex;gap:26px;flex-wrap:wrap;font-size:14px;color:var(--mute);padding:6px 0 0}}.digest b{{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}}
+#ticker-wrap{{background:var(--stone);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:18px 0 0}}#ticker{{list-style:none;margin:0;padding:0}}#ticker li{{display:flex;gap:12px;font:13px/1.6 ui-monospace,Menlo,monospace;min-width:0}}#ticker .t{{color:var(--dim);flex:none}}#ticker .x{{color:var(--mute);overflow-wrap:anywhere}}#ticker .x.say{{color:var(--ink)}}#ticker .x.done{{color:var(--green)}}
+.grid{{display:grid;grid-template-columns:1fr;gap:0 40px}}@media(min-width:900px){{.grid{{grid-template-columns:1fr 1fr}}}}.grid>div{{min-width:0}}
 section{{margin:26px 0 0}}h2{{font:500 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}}
-.num{{font:600 clamp(44px,8vw,72px)/1 -apple-system,"SF Pro Display",Inter,sans-serif;letter-spacing:-.03em;margin:4px 0 2px;font-variant-numeric:tabular-nums}}
-.sub{{color:var(--mute);font-size:14px}}
-.stairs{{list-style:none;margin:16px 0 0;padding:0;border-left:2px solid var(--line)}}
-.stairs li{{display:flex;gap:10px;align-items:center;padding:3px 0 3px 12px;color:var(--dim);font-size:13px;font-variant-numeric:tabular-nums}}
-.stairs li .n{{width:1.2em;font-family:ui-monospace,Menlo,monospace}}.stairs li .l{{flex:1}}.stairs li .v{{color:var(--dim)}}
-.stairs li.top,.stairs li.top .v{{color:var(--gold)}}
-.stairs li.here{{color:var(--ink);font-weight:600;position:relative}}.stairs li.here::before{{content:"";position:absolute;left:-7px;top:50%;width:12px;height:12px;border-radius:50%;background:var(--green);transform:translateY(-50%);box-shadow:0 0 10px var(--green)}}
-.stairs li.here .v{{color:var(--ink)}}
-.word{{background:var(--stone);border:1px solid var(--line);border-radius:10px;padding:16px 18px}}.word p{{margin:0 0 10px;font-size:15px}}.word p:last-child{{margin:0}}.word h3{{font-size:14px;margin:0 0 8px;color:var(--gold)}}
-.word .who{{color:var(--mute);font-size:12.5px;margin-top:10px}}
-.candle{{height:8px;background:var(--stone2);border-radius:4px;overflow:hidden;margin:8px 0 6px}}.candle i{{display:block;height:100%;width:{pct:.1f}%;background:linear-gradient(90deg,var(--gold),var(--red))}}
-ul.rows{{list-style:none;margin:8px 0 0;padding:0}}ul.rows li{{display:grid;grid-template-columns:auto auto 1fr auto;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line);font-size:14.5px}}
+.word{{background:var(--stone);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-wrap:anywhere}}.word summary{{cursor:pointer;font-size:15px;list-style:none}}.word summary::-webkit-details-marker{{display:none}}.word p{{margin:10px 0 0;font-size:15px}}.word .who{{color:var(--mute);font-size:12.5px;margin-top:10px}}
+ul.rows{{list-style:none;margin:8px 0 0;padding:0}}ul.rows li{{display:grid;grid-template-columns:auto auto 1fr auto;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line);font-size:14.5px;min-width:0}}ul.rows li>*{{min-width:0}}
 ul.rows li:first-child{{border-top:0}}ul.rows .t{{font-family:ui-monospace,Menlo,monospace;color:var(--mute);font-size:12.5px}}ul.rows .r{{color:var(--gold);font-size:12.5px;text-transform:capitalize}}
-ul.rows .a{{min-width:0;overflow-wrap:anywhere}}ul.rows .c{{color:var(--mute);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}}
-ul.rows li.empty{{display:block;color:var(--dim);font-style:italic}}
+ul.rows .a{{overflow-wrap:anywhere}}ul.rows .c{{color:var(--mute);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}}ul.rows li.empty{{display:block;color:var(--dim);font-style:italic}}
 ul.rows .k,ul.rows .s{{font:500 11px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;padding:4px 6px;border-radius:4px;background:var(--stone2);color:var(--mute)}}
-ul.rows .k.money{{color:var(--red)}}ul.rows .k.human{{color:var(--gold)}}ul.rows .s.live{{color:var(--green)}}ul.rows .s.killed{{color:var(--red)}}
-ul.rows.two li{{grid-template-columns:auto 1fr auto}}ul.rows.ob li{{grid-template-columns:auto 1fr auto auto}}.ctl{{display:flex;gap:6px}}
+ul.rows .k.granted,ul.rows .s.live{{color:var(--green)}}ul.rows .k.denied,ul.rows .s.killed{{color:var(--red)}}ul.rows .k.wait{{color:var(--gold)}}ul.rows .s.tooling{{color:var(--gold)}}
+ul.rows.two li{{grid-template-columns:auto 1fr auto}}.why{{color:var(--mute);font-size:13px;margin-top:3px}}
 a.lnk{{color:var(--mute);text-decoration:underline dotted;font-size:12.5px}}a.lnk:hover{{color:var(--gold)}}
 .journal h3{{font-size:14px;margin:14px 0 4px;color:var(--gold)}}.journal p{{margin:0 0 8px;font-size:14.5px}}
 footer{{margin-top:40px;color:var(--dim);font-size:12px}}
 </style></head><body><div class="wrap">
-<header><h1>The Palace</h1><div class="light {cls}"><span class="dot"></span><span>{esc(light)}</span><span class="seen">{esc(seen)}</span></div>{controls}</header>
+<header><h1>The Palace</h1><div class="light {cls}"><span class="dot"></span><span id="light-text">{esc(light)}</span><span class="seen">{esc(seen)}</span></div>{controls}</header>
+<div class="top"><div><div class="num">${rev:,.0f}</div><div class="sub">of $1,000,000,000 · floor {floor} of 9 · all residents walk out together</div></div>
+<div class="floors">dungeon {stairs_line} heaven</div></div>
+<div class="digest"><span>today <b>${spent:.2f}</b> spent</span><span><b>{len(ticks)}</b> ticks</span><span><b>{sends_t}</b> first touches</span><span>purse <b>${bal:.2f}</b> of ${B['bucket_cap_usd']}</span><span>yesterday <b>${spent_y:.2f}</b></span><span>in, ever <b>${rev:,.0f}</b></span></div>
+<div id="ticker-wrap" style="{'' if running else 'display:none'}"><ul id="ticker">{ticker}</ul></div>
 <div class="grid"><div>
-<section><h2>To heaven</h2><div class="num">${rev:,.0f}</div>
-<div class="sub">of $1,000,000,000 · floor {floor} of 9 · all residents walk out together</div>
-<ol class="stairs">{stairs}</ol></section>
-<section><h2>The word from above</h2><div class="word">{md(word)}<div class="who">{esc('spoken ' + fm['spoken']) if fm.get('spoken') else ''}{esc(' · from ' + fm['corpus']) if fm.get('corpus') else ''}</div></div></section>
+<section><h2>The word from above</h2><details class="word"><summary>{md(word_first).replace('<p>','').replace('</p>','')}</summary>{md(word[len(word_first):] if word.strip() else '')}<div class="who">{esc('spoken ' + fm['spoken']) if fm.get('spoken') else ''}{esc(' · from ' + fm['corpus']) if fm.get('corpus') else ''}</div></details></section>
+<section><h2>The court</h2><ul class="rows two">{court}</ul></section>
+<section><h2>Calendar</h2><ul class="rows two">{calrows}</ul></section>
 <section><h2>The map</h2><ul class="rows two">{mp}</ul></section>
 </div><div>
-<section><h2>Today · ${spent:.2f} of ${daily}</h2><div class="candle"><i></i></div>
-<div class="sub">{len(ticks)} tick{'s' if len(ticks)!=1 else ''} · ${max(daily-spent,0):.2f} left in the purse</div>
-<ul class="rows">{rows}</ul></section>
-<section><h2>Needs Aidan · {len(outbox)}</h2><ul class="rows ob">{ob}</ul>{('<ul class="rows two">'+ap+'</ul>') if ap else ''}</section>
+<section><h2>Today</h2><ul class="rows">{rows}</ul></section>
 <section class="journal"><h2>Journal · {esc(jday) or 'nothing yet'}</h2>{md(journal) if journal else "<p class='sub'>The first entry is written when the first resident finishes.</p>"}</section>
 </div></div>
-<footer>Rendered {now.strftime('%Y-%m-%d %H:%M')} · bound ${daily}/day · every number above is read from state/, never typed.</footer>
-</div></body></html>"""
-
-def _locked(path):
-    import fcntl
-    try:
-        f = open(path, "a"); fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB); fcntl.flock(f, fcntl.LOCK_UN); f.close(); return False
-    except BlockingIOError:
-        return True
+<footer>Rendered {now.strftime('%Y-%m-%d %H:%M')} · ${B['daily_usd']}/day into an ${B['bucket_cap_usd']} purse · every number above is read from state/, never typed.</footer>
+</div>{livejs}</body></html>"""
 
 if __name__ == "__main__":
     os.chdir(ROOT); os.makedirs("site", exist_ok=True)

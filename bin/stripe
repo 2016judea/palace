@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Paid Stripe checkouts since the last one seen. Reads STRIPE_SECRET_KEY from bricks/.env. Writes state/stripe.json; prints new paid sessions."""
+import os, json, urllib.request, base64, datetime as dt
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+key = next((l.split("=", 1)[1].strip().strip('"') for l in open("/Users/aidan/Desktop/bricks/.env") if l.startswith("STRIPE_SECRET_KEY=")), None)
+if not key: raise SystemExit("no STRIPE_SECRET_KEY in bricks/.env")
+seen = json.load(open("state/stripe.json")) if os.path.exists("state/stripe.json") else {"seen": [], "checked": None}
+req = urllib.request.Request("https://api.stripe.com/v1/checkout/sessions?limit=50", headers={"Authorization": "Bearer " + key})
+data = json.load(urllib.request.urlopen(req, timeout=30))["data"]
+new = []
+for s in data:
+    if s.get("payment_status") == "paid" and s["id"] not in seen["seen"]:
+        new.append({"id": s["id"], "usd": s["amount_total"] / 100, "created": dt.datetime.fromtimestamp(s["created"]).isoformat(timespec="minutes"), "email_domain": (s.get("customer_details") or {}).get("email", "").split("@")[-1]})
+        seen["seen"].append(s["id"])
+seen["checked"] = dt.datetime.now().isoformat(timespec="minutes")
+json.dump(seen, open("state/stripe.json", "w"), indent=1)
+print(json.dumps(new, indent=1) if new else "no new paid sessions")

@@ -21,12 +21,12 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p = unquote(self.path.split("?")[0])
         if p == "/": return self.send(R.render(live=True))
+        if p == "/api/live":
+            last = json.load(open("state/last_tick.json")) if os.path.exists("state/last_tick.json") else {}
+            running = os.path.exists("state/.tick.lock") and R._locked("state/.tick.lock")
+            light = f"green fields · {last.get('next') or 'a resident'} at work" if running else ("paused" if os.path.exists("state/PAUSED") else "green fields · between ticks")
+            return self.send(json.dumps({"running": running, "light": light, "rows": R.live_tail() if running else []}), ctype="application/json")
         if p == "/api/state": return self.send(json.dumps({"last": json.load(open("state/last_tick.json")) if os.path.exists("state/last_tick.json") else {}, "paused": os.path.exists("state/PAUSED")}), ctype="application/json")
-        if p.startswith("/outbox/"):
-            f = "state/outbox/" + os.path.basename(p[8:])
-            if os.path.exists(f):
-                t = open(f).read()
-                return self.send(page(f, f"<h3>{html.escape(os.path.basename(f))}</h3><pre>{html.escape(t)}</pre><form method=post action=/approve><input type=hidden name=f value='{html.escape(os.path.basename(f))}'><button>approve</button></form><form method=post action=/decline><input type=hidden name=f value='{html.escape(os.path.basename(f))}'><button>decline</button></form>"))
         if p.startswith("/transcript/"):
             f = "state/transcripts/" + os.path.basename(p[12:]) + ".txt"
             if os.path.exists(f): return self.send(page(f, f"<h3>{html.escape(os.path.basename(f))}</h3><pre>{html.escape(open(f).read())}</pre>"))
@@ -40,16 +40,8 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0)); q = parse_qs(self.rfile.read(n).decode()); p = self.path
         f = os.path.basename(q.get("f", [""])[0])
-        if p == "/approve" and f and os.path.exists("state/outbox/" + f):
-            subprocess.run([sys.executable, "bin/approve", f], capture_output=True)
-        elif p == "/decline" and f and os.path.exists("state/outbox/" + f):
-            os.makedirs("state/declined", exist_ok=True); shutil.move("state/outbox/" + f, "state/declined/" + f)
-        elif p == "/pause": open("state/PAUSED", "w").write(dt.datetime.now().isoformat())
+        if p == "/pause": open("state/PAUSED", "w").write(dt.datetime.now().isoformat())
         elif p == "/resume" and os.path.exists("state/PAUSED"): os.remove("state/PAUSED")
-        elif p == "/wake":
-            r = q.get("r", ["merchant"])[0]
-            if r in ("god", "steward", "merchant", "mason", "scout"):
-                subprocess.Popen([sys.executable, "bin/tick", r], stdout=open(os.path.expanduser("~/Library/Logs/palace.log"), "a"), stderr=subprocess.STDOUT)
         elif p == "/purse":
             try:
                 v = float(q.get("daily_usd", [""])[0]); cfg = json.load(open("palace.json")); cfg["budget"]["daily_usd"] = v

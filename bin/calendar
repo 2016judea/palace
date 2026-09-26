@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""The residents' own calendar: dated actions, read by bin/due.
+    bin/calendar add 2026-10-02 logistics-diagnostic "touch 2: 8 emails + 10 InMails, one new observation each"
+    bin/calendar done <id>
+    bin/calendar             # list open
+"""
+import sys, os, json, re, datetime as dt
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+P = "state/calendar.json"; cal = json.load(open(P)) if os.path.exists(P) else []
+a = sys.argv[1:]
+if a and a[0] == "add":
+    date, path, what = a[1], a[2], a[3]
+    cid = date + "-" + re.sub(r"[^a-z0-9]+", "-", (path + " " + what).lower()).strip("-")[:40]
+    if any(e["id"] == cid for e in cal): sys.exit(f"exists: {cid}")
+    cal.append({"id": cid, "date": date, "path": path, "what": what, "added": dt.date.today().isoformat()}); print(cid)
+elif a and a[0] == "done":
+    for e in cal:
+        if e["id"] == a[1]: e["done"] = dt.date.today().isoformat(); print("done", e["id"])
+else:
+    for e in sorted(cal, key=lambda e: e["date"]):
+        if not e.get("done"): print(e["date"], e["path"], "·", e["what"], f"({e['id']})")
+json.dump(sorted(cal, key=lambda e: e["date"]), open(P, "w"), indent=1)

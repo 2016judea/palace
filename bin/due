@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""What is actionable right now, without spending a cent of model.
+    bin/due            # JSON
+    bin/due --text     # one line per item
+Sources: new mail in the Zoho INBOX (Mail.app's local store), state/calendar.json,
+rulings in state/court/ruled/ not yet acted on, first touches sent today."""
+import json, os, glob, sys, datetime as dt
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+CFG = json.load(open("palace.json")); today = dt.date.today().isoformat()
+
+def jl(p): return [json.loads(l) for l in open(p) if l.strip()] if os.path.exists(p) else []
+def fm(text):
+    d = {}
+    if text.startswith("---"):
+        for line in text.split("---", 2)[1].splitlines():
+            if ":" in line: k, v = line.split(":", 1); d[k.strip()] = v.strip()
+    return d
+
+# 1. replies: .emlx files in INBOX newer than the last time a resident read the inbox
+seen = 0.0
+if os.path.exists("state/inbox_seen"):
+    try: seen = float(open("state/inbox_seen").read().strip())
+    except ValueError: seen = 0.0
+mail = []
+for p in glob.glob(os.path.join(CFG["inbox"]["mail_dir"], "**", "*.emlx"), recursive=True):
+    if os.path.getmtime(p) > seen:
+        mail.append(dt.datetime.fromtimestamp(os.path.getmtime(p)).isoformat(timespec="minutes"))
+# 2. calendar
+cal = []
+if os.path.exists("state/calendar.json"):
+    for e in json.load(open("state/calendar.json")):
+        if not e.get("done") and e["date"] <= today:
+            cal.append(e)
+# 3. rulings granted, not yet acted on
+granted = []
+for p in sorted(glob.glob("state/court/ruled/*.md")):
+    d = fm(open(p).read())
+    if d.get("ruling", "").startswith("granted") and not d.get("acted"):
+        granted.append({"file": os.path.basename(p), "title": d.get("title", ""), "path": d.get("path", "")})
+# 4. petitions waiting for God
+pending = [os.path.basename(p) for p in sorted(glob.glob("state/court/*.md"))]
+# 5. sends today
+sends = sum(int(r.get("n", 1)) for r in jl("state/sends.jsonl") if r["ts"].startswith(today) and r.get("kind", "first") == "first")
+out = {"replies_new": len(mail), "replies_at": mail[-3:], "calendar_due": cal, "granted_unacted": granted,
+       "petitions_pending": pending, "first_touches_today": sends, "first_touch_cap": CFG["sends"]["daily_first_touch_cap"],
+       "merchant_due": bool(mail or cal or granted)}
+if "--text" in sys.argv:
+    if mail: print(f"- {len(mail)} new message(s) in the business inbox since a resident last read it (latest {mail[-1]}). Read them; a reply is answered the same day.")
+    for e in cal: print(f"- due {e['date']} · {e.get('path','')} · {e['what']}  (id {e['id']})")
+    for g in granted: print(f"- GRANTED by God, not yet acted on: {g['title']}  ({g['file']}); when done, add `acted: <date>` to its frontmatter")
+    if pending: print(f"- {len(pending)} petition(s) waiting for God's ruling: {', '.join(pending)}")
+    print(f"- first touches sent today: {sends} of {CFG['sends']['daily_first_touch_cap']}")
+    if not (mail or cal or granted): print("- nothing is due for Merchant")
+else:
+    print(json.dumps(out, indent=1))

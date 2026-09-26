@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""A resident asks God for a ruling. Writes state/court/<date>-<slug>.md; the loop wakes God's court.
+    bin/petition "<title>" --kind grant|channel|decision --path <path id> --by merchant [--body-file f | --body "..."]
+"""
+import sys, os, re, datetime as dt
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+a = sys.argv[1:]
+def opt(k, d=""):
+    return a[a.index(k) + 1] if k in a else d
+title = a[0]; kind = opt("--kind", "grant"); path = opt("--path", ""); by = opt("--by", "resident")
+body = open(opt("--body-file")).read() if "--body-file" in a else opt("--body", "")
+slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60]
+f = f"state/court/{dt.date.today().isoformat()}-{slug}.md"
+os.makedirs("state/court/ruled", exist_ok=True)
+if os.path.exists(f): sys.exit(f"exists: {f}")
+open(f, "w").write(f"---\ntitle: {title}\nkind: {kind}\npath: {path}\nfiled: {dt.datetime.now().isoformat(timespec='minutes')} by {by}\n---\n\n{body.strip()}\n")
+print(f)

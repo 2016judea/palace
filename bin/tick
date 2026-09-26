@@ -2,242 +2,226 @@
 """One tick of the dungeon: wake one resident, bound its spend, record everything.
 
     bin/tick              # the scheduler picks the resident
-    bin/tick merchant     # force one
+    bin/tick merchant     # force one (court | god | steward | merchant | mason | scout)
     DRY=1 bin/tick        # print the brief, spend nothing
 
-Exit 0 always: the loop decides what to do next from state/last_tick.json.
+The purse is a token bucket: dollars accrue at daily_usd per 24h up to bucket_cap_usd.
+A resident wakes only when the bucket holds min_cap_usd; its hard cap is
+min(tick_cap_usd, balance). Exit 0 always; the loop reads state/last_tick.json.
 """
-import json, os, subprocess, sys, time, datetime as dt, fcntl, shutil, re
+import json, os, subprocess, sys, time, datetime as dt, fcntl, re, glob
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
 CFG = json.load(open("palace.json"))
-os.environ.setdefault("TZ", CFG.get("timezone", "America/Chicago"))
-time.tzset()
-STATE = "state"
-LEDGER = f"{STATE}/ledger.jsonl"
-TICKS = f"{STATE}/ticks.jsonl"
-LAST = f"{STATE}/last_tick.json"
+os.environ.setdefault("TZ", CFG.get("timezone", "America/Chicago")); time.tzset()
+STATE = "state"; LEDGER = f"{STATE}/ledger.jsonl"; TICKS = f"{STATE}/ticks.jsonl"; LAST = f"{STATE}/last_tick.json"
+BUCKET = f"{STATE}/bucket.json"; LIVE = f"{STATE}/live.jsonl"
 DRY = os.environ.get("DRY") == "1"
+RESIDENTS = ("court", "god", "steward", "merchant", "mason", "scout")
 
-
-def now():
-    return dt.datetime.now()
-
-
-def today():
-    return now().strftime("%Y-%m-%d")
-
-
-def yesterday():
-    return (now() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
-
-
+def now(): return dt.datetime.now()
+def today(): return now().strftime("%Y-%m-%d")
+def yesterday(): return (now() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
 def read_jsonl(path):
-    if not os.path.exists(path):
-        return []
     out = []
-    for line in open(path):
-        line = line.strip()
-        if line:
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    if os.path.exists(path):
+        for line in open(path):
+            try: out.append(json.loads(line))
+            except json.JSONDecodeError: pass
     return out
-
-
 def append_jsonl(path, obj):
-    with open(path, "a") as f:
-        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
-
-
-def revenue_total():
-    return sum(float(r.get("usd", 0)) for r in read_jsonl(f"{STATE}/revenue.jsonl"))
-
-
-def spent_today():
-    day = today()
-    fixed = float(CFG["budget"].get("fixed_daily_usd", 0))
-    return fixed + sum(float(r.get("usd", 0)) for r in read_jsonl(LEDGER) if r.get("ts", "").startswith(day))
-
-
-def ticks_today():
-    day = today()
-    return [t for t in read_jsonl(TICKS) if t.get("ts", "").startswith(day)]
-
-
+    with open(path, "a") as f: f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+def revenue_total(): return sum(float(r.get("usd", 0)) for r in read_jsonl(f"{STATE}/revenue.jsonl") if r.get("kind", "revenue") == "revenue")
+def ticks_today(): return [t for t in read_jsonl(TICKS) if t.get("ts", "").startswith(today())]
 def online():
-    try:
-        r = subprocess.run(["curl", "-sI", "--max-time", "6", "https://api.anthropic.com/"], capture_output=True)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
+    try: return subprocess.run(["curl", "-sI", "--max-time", "6", "https://api.anthropic.com/"], capture_output=True).returncode == 0
+    except Exception: return False
 def finish(mode, resident=None, **extra):
     rec = {"ts": now().isoformat(timespec="seconds"), "mode": mode, "resident": resident, **extra}
     json.dump(rec, open(LAST, "w"), indent=1)
     print(f"[tick] {mode}" + (f" {resident}" if resident else "") + (f" {extra}" if extra else ""))
     return 0
 
+# ---- the purse -------------------------------------------------------------
+def bucket():
+    b = json.load(open(BUCKET)) if os.path.exists(BUCKET) else {"balance": CFG["budget"]["bucket_cap_usd"], "ts": now().isoformat(timespec="seconds")}
+    elapsed = (now() - dt.datetime.fromisoformat(b["ts"])).total_seconds()
+    rate = CFG["budget"]["daily_usd"] / 86400.0
+    b["balance"] = min(CFG["budget"]["bucket_cap_usd"], b["balance"] + max(elapsed, 0) * rate)
+    b["ts"] = now().isoformat(timespec="seconds")
+    return b
+def charge(usd):
+    b = bucket(); b["balance"] = max(0.0, b["balance"] - usd); json.dump(b, open(BUCKET, "w"), indent=1)
+def spent_today(): return sum(float(r.get("usd", 0)) for r in read_jsonl(LEDGER) if r.get("ts", "").startswith(today()))
 
-def pick_resident():
-    done = {t["resident"] for t in ticks_today() if t.get("mode") == "worked"}
-    if "god" not in done:
-        return "god"
-    if "steward" not in done:
-        return "steward"
-    rot = CFG["rotation"]
-    n = len([t for t in ticks_today() if t.get("mode") == "worked" and t["resident"] in rot])
-    return rot[n % len(rot)]
-
-
+# ---- who wakes -------------------------------------------------------------
+def due(): return json.loads(subprocess.run([sys.executable, "bin/due"], capture_output=True, text=True).stdout or "{}")
+def pick_resident(d):
+    worked = [t for t in ticks_today() if t.get("mode") == "worked"]
+    names = [t["resident"] for t in worked]
+    rulings_today = sum(1 for t in worked if t["resident"] == "court")
+    if d.get("petitions_pending") and rulings_today < CFG["court"]["max_per_day"]: return "court"
+    if "god" not in names: return "god"
+    if "steward" not in names: return "steward"
+    if d.get("merchant_due"): return "merchant"
+    scout_n = names.count("scout"); since_scout = len(names) - (max(i for i, n in enumerate(names) if n == "scout") + 1) if "scout" in names else 99
+    if scout_n < CFG["scout"]["max_per_day"] and since_scout >= CFG["scout"]["min_ticks_between"]: return "scout"
+    return "mason"
 def caps_for(resident):
+    if resident == "court": return float(CFG["court"]["cap_usd"]), CFG["court"]["effort"]
     daily = CFG.get("daily", {}).get(resident)
-    if daily:
-        return float(daily["cap_usd"]), daily.get("effort", CFG.get("effort"))
+    if daily: return float(daily["cap_usd"]), daily.get("effort", CFG.get("effort"))
     return float(CFG["budget"]["tick_cap_usd"]), CFG.get("effort")
 
-
-def build_prompts(resident, cap, remaining):
-    floor = 0
-    rev = revenue_total()
-    while rev >= 10 ** (floor + 1):
-        floor += 1
-    t = today(); y = yesterday()
-    n = len(ticks_today()) + 1
-    sysprompt = open("PALACE.md").read() + "\n\n---\n\n" + open(f"residents/{resident}.md").read()
-    sysprompt += (
-        f"\n\n---\n\n## Today\n\n- Date: {t} ({now().strftime('%A')}), tick {n}. You are **{resident.title()}**.\n"
-        f"- Revenue to date: ${rev:,.0f}. Floor {floor} of 9.\n"
-        f"- This tick's hard cap: ${cap:.2f}. Left in today's purse after it: ${max(remaining - cap, 0):.2f} of ${CFG['budget']['daily_usd']}.\n"
-        f"- The palace repo is the working directory: {ROOT}\n"
-    )
-    if resident == "god":
-        brief = (
-            f"Speak. Read journal/{y}.md, the tail of state/ticks.jsonl, state/revenue.jsonl, state/next.md, then ONE corpus. "
-            f"Write state/word.md (overwrite, frontmatter spoken + corpus) and append the same word under a '## {t}' heading in journal/words.md. "
-            f"Commit those two files by path and push. End with the ACT line."
-        )
-    elif resident == "steward":
-        brief = (
-            f"Keep the books. Work your six steps in order for {t}. Append your journal entry to journal/{t}.md, rewrite state/next.md, "
-            f"commit state/ and journal/ by path, push. End with the ACT line."
-        )
+# ---- the brief -------------------------------------------------------------
+def words(s, cap):
+    w = s.split()
+    return s if len(w) <= cap else " ".join(w[:cap]) + f"\n\n[cut at {cap} words — rewrite your resume note shorter]"
+def rulings_since(ts_iso):
+    out = []
+    for p in sorted(glob.glob(f"{STATE}/court/ruled/*.md")):
+        if dt.datetime.fromtimestamp(os.path.getmtime(p)).isoformat() >= ts_iso: out.append(open(p).read())
+    return out
+def last_tick_of(resident):
+    ts = [t["ts"] for t in read_jsonl(TICKS) if t["resident"] == resident]
+    return ts[-1] if ts else "1970-01-01T00:00:00"
+def build_prompts(resident, cap, balance, d):
+    rev = revenue_total(); floor = 0
+    while rev >= 10 ** (floor + 1): floor += 1
+    t = today(); n = len(ticks_today()) + 1
+    charter = "court" if resident == "court" else resident
+    sysprompt = open("PALACE.md").read() + "\n\n---\n\n" + open(f"residents/{'god' if charter == 'court' else charter}.md").read()
+    sysprompt += (f"\n\n---\n\n## Today\n\n- {t} ({now().strftime('%A')}), tick {n}. You are **{'God, sitting in court' if resident == 'court' else resident.title()}**.\n"
+                  f"- Revenue to date: ${rev:,.0f}. Floor {floor} of 9. Spent today: ${spent_today():.2f}.\n"
+                  f"- This tick's hard cap: ${cap:.2f}. The purse holds ${balance:.2f}; it refills at ${CFG['budget']['daily_usd']}/day to a ceiling of ${CFG['budget']['bucket_cap_usd']}.\n"
+                  f"- Working directory: {ROOT}\n")
+    word = open(f"{STATE}/word.md").read() if os.path.exists(f"{STATE}/word.md") else ""
+    resume_p = f"{STATE}/resume/{resident}.md"
+    resume = words(open(resume_p).read(), CFG["brief"]["resume_word_cap"]) if os.path.exists(resume_p) else "(no resume note yet — write one before you end)"
+    due_txt = subprocess.run([sys.executable, "bin/due", "--text"], capture_output=True, text=True).stdout
+    rul = rulings_since(last_tick_of(resident))
+    if resident == "court":
+        pets = "\n\n".join(f"### {os.path.basename(p)}\n{open(p).read()}" for p in sorted(glob.glob(f"{STATE}/court/*.md")))
+        brief = (f"Sit in court. Petitions waiting:\n\n{pets}\n\nRule on each: write `ruling: granted` or `ruling: denied` plus `ruled: {now().isoformat(timespec='minutes')}` into its frontmatter, "
+                 f"then a **Ruling** section of at most 120 words stating the reason and any condition, then `git mv` the file into state/court/ruled/. "
+                 f"A grant on a path also sets that path's `grant` in paths.json to `send` (with `grant_scope` quoting your condition). "
+                 f"Commit state/court and paths.json by path and push. End with `ACT: ruled — <n> granted, <m> denied: <ten words>`.")
+    elif resident == "god":
+        brief = (f"Speak. Read journal/{yesterday()}.md and journal/{t}.md if it exists, the tail of state/ticks.jsonl, state/revenue.jsonl, then ONE corpus. "
+                 f"Write state/word.md (overwrite, frontmatter spoken + corpus) and append the same word under a '## {t}' heading in journal/words.md. "
+                 f"Commit those two files by path and push. End with the ACT line.")
     else:
-        brief = (
-            f"Tick {n} of {t}. Read, in this order, before acting: state/word.md; state/next.md; journal/{t}.md and journal/{y}.md; "
-            f"paths.json; state/approved/ (anything Aidan said yes to). Then do ONE unit of work per your charter, complete and pushed. "
-            f"Then append your entry to journal/{t}.md, rewrite state/next.md, commit the palace by path (journal/, state/, paths.json) and push. "
-            f"If you worked in another repo, commit there by path and push too. End with the ACT line."
-        )
+        brief = (f"## The word from above\n{word}\n\n## Due now (bin/due)\n{due_txt}\n" + (f"\n## Rulings since your last tick\n" + "\n\n".join(rul) + "\n" if rul else "") +
+                 f"\n## Your resume note (state/resume/{resident}.md)\n{resume}\n\n## Now\n"
+                 f"Do ONE unit of work per your charter, complete and pushed. You may read any file, but the brief above is what you were given; every extra read is purse money. "
+                 f"Then: append your entry to journal/{t}.md; rewrite state/resume/{resident}.md (under {CFG['brief']['resume_word_cap']} words, only what the next {resident} needs); "
+                 f"`bin/calendar add` any dated action you now know of; commit the palace by path (journal/, state/, paths.json) and push; commit any other repo you touched by path and push. "
+                 f"End with the ACT line.")
     return sysprompt, brief
 
-
+# ---- run -------------------------------------------------------------------
 def run_claude(resident, sysprompt, brief, cap, effort):
-    tmp = f"{STATE}/.sysprompt-{resident}.md"
-    open(tmp, "w").write(sysprompt)
-    cmd = ["claude", "-p", brief, "--output-format", "json", "--max-budget-usd", f"{cap:.2f}",
+    tmp = f"{STATE}/.sysprompt-{resident}.md"; open(tmp, "w").write(sysprompt)
+    cmd = ["claude", "-p", brief, "--output-format", "stream-json", "--verbose", "--max-budget-usd", f"{cap:.2f}",
            "--dangerously-skip-permissions", "--append-system-prompt-file", tmp]
-    if CFG.get("model"):
-        cmd += ["--model", CFG["model"]]
-    if effort:
-        cmd += ["--effort", effort]
-    for p in CFG["repos"].values():
-        cmd += ["--add-dir", p]
+    if CFG.get("model"): cmd += ["--model", CFG["model"]]
+    if effort: cmd += ["--effort", effort]
+    for p in CFG["repos"].values(): cmd += ["--add-dir", p]
     cmd += ["--add-dir", os.path.expanduser("~/.claude/skills"), "--add-dir", os.path.expanduser("~/Desktop/ideas")]
-    env = dict(os.environ)
-    env.pop("CLAUDECODE", None)  # a tick launched from inside a session must still be allowed to run claude
-    t0 = time.time()
+    env = dict(os.environ); env.pop("CLAUDECODE", None)
+    t0 = time.time(); result = None
+    open(LIVE, "w").close()
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=CFG["cadence"]["tick_timeout_seconds"], env=env)
-        raw = r.stdout
-    except subprocess.TimeoutExpired as e:
-        raw = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
-        return {"subtype": "timeout", "total_cost_usd": None, "result": "", "is_error": True, "duration_ms": int((time.time() - t0) * 1000)}, raw
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        with open(LIVE, "a") as live:
+            for line in proc.stdout:
+                if time.time() - t0 > CFG["cadence"]["tick_timeout_seconds"]:
+                    proc.kill(); break
+                try: ev = json.loads(line)
+                except json.JSONDecodeError: continue
+                summary = live_summary(ev)
+                if summary: live.write(json.dumps({"ts": now().isoformat(timespec="seconds"), **summary}) + "\n"); live.flush()
+                if ev.get("type") == "result": result = ev
+        proc.wait(timeout=30)
+        stderr = proc.stderr.read()[-2000:]
+    except Exception as e:
+        stderr = str(e)[-2000:]
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-    try:
-        return json.loads(raw), raw
-    except json.JSONDecodeError:
-        return {"subtype": "unparseable", "total_cost_usd": None, "result": raw[-2000:], "is_error": True,
-                "duration_ms": int((time.time() - t0) * 1000), "stderr": r.stderr[-2000:]}, raw
+        try: os.remove(tmp)
+        except OSError: pass
+    if result is None:
+        return {"subtype": "no_result", "total_cost_usd": None, "result": "", "is_error": True, "duration_ms": int((time.time() - t0) * 1000), "stderr": stderr}
+    return result
 
+def live_summary(ev):
+    """One line per thing the resident did, for the page's ticker."""
+    if ev.get("type") == "assistant":
+        for c in ev.get("message", {}).get("content", []):
+            if c.get("type") == "tool_use":
+                i = c.get("input", {}); name = c.get("name", "")
+                arg = i.get("command") or i.get("file_path") or i.get("pattern") or i.get("query") or i.get("skill") or i.get("prompt") or i.get("url") or ""
+                return {"kind": "tool", "text": f"{name}: {str(arg)[:140]}"}
+            if c.get("type") == "text" and c.get("text", "").strip():
+                return {"kind": "say", "text": c["text"].strip()[:200]}
+    if ev.get("type") == "result":
+        return {"kind": "done", "text": f"done · ${ev.get('total_cost_usd', 0):.2f} · {ev.get('num_turns')} turns"}
+    return None
 
-def act_line(result_text):
-    m = re.findall(r"^ACT:\s*(.+)$", result_text or "", flags=re.M)
-    if m:
-        return m[-1].strip()[:160]
-    first = (result_text or "").strip().splitlines()
-    return (first[0][:160] if first else "(no report)")
-
+def act_line(text):
+    m = re.findall(r"^ACT:\s*(.+)$", text or "", flags=re.M)
+    if m: return m[-1].strip()[:160]
+    first = (text or "").strip().splitlines(); return (first[0][:160] if first else "(no report)")
 
 def git_commit_push(paths, msg):
     subprocess.run(["git", "add", "--"] + paths, capture_output=True)
-    r = subprocess.run(["git", "diff", "--cached", "--quiet"])
-    if r.returncode == 0:
-        return "nothing to commit"
+    if subprocess.run(["git", "diff", "--cached", "--quiet"]).returncode == 0: return "clean"
     subprocess.run(["git", "commit", "-q", "-m", msg], capture_output=True)
     p = subprocess.run(["git", "push", "-q"], capture_output=True, text=True)
     return "pushed" if p.returncode == 0 else f"push failed: {p.stderr.strip()[-200:]}"
 
-
 def render_and_deploy():
     subprocess.run([sys.executable, "bin/render"], capture_output=True)
     if CFG.get("deploy", {}).get("vercel") and not DRY and online():
-        subprocess.run(["npx", "--yes", "vercel", "--prod", "--yes"], cwd="site", capture_output=True, timeout=300)
-
+        try: subprocess.run(["npx", "--yes", "vercel", "--prod", "--yes"], cwd="site", capture_output=True, timeout=300)
+        except Exception: pass
 
 def main():
     lock = open(f"{STATE}/.tick.lock", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return finish("busy")
-    if revenue_total() >= CFG["goal_usd"]:
-        return finish("ascended")
-    if os.path.exists(f"{STATE}/PAUSED"):
-        return finish("paused")
-    if not online():
-        return finish("dark")
-    remaining = float(CFG["budget"]["daily_usd"]) - spent_today()
-    resident = sys.argv[1] if len(sys.argv) > 1 else pick_resident()
+    try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError: return finish("busy")
+    if revenue_total() >= CFG["goal_usd"]: return finish("ascended")
+    if os.path.exists(f"{STATE}/PAUSED"): return finish("paused")
+    if not online(): return finish("dark")
+    b = bucket(); json.dump(b, open(BUCKET, "w"), indent=1)
+    d = due()
+    resident = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in RESIDENTS else pick_resident(d)
     cap, effort = caps_for(resident)
-    if remaining < float(CFG["budget"]["floor_usd"]):
-        return finish("asleep", remaining=round(remaining, 2))
-    cap = min(cap, remaining)
-    sysprompt, brief = build_prompts(resident, cap, remaining)
+    if b["balance"] < min(CFG["budget"]["min_cap_usd"], cap): return finish("empty", balance=round(b["balance"], 2))
+    cap = min(cap, b["balance"])
+    sysprompt, brief = build_prompts(resident, cap, b["balance"], d)
     if DRY:
-        print(brief); print(f"-- cap ${cap:.2f}, effort {effort}, model {CFG.get('model') or 'default'}")
-        return finish("dry", resident)
+        print(brief); print(f"-- {resident}: cap ${cap:.2f}, effort {effort}, balance ${b['balance']:.2f}"); return finish("dry", resident)
     ts = now().isoformat(timespec="seconds")
     json.dump({"ts": ts, "mode": "working", "resident": resident, "next": resident}, open(LAST, "w"), indent=1)
-    res, raw = run_claude(resident, sysprompt, brief, cap, effort)
-    cost = res.get("total_cost_usd")
-    if cost is None:  # a timeout or an unparseable reply still spent; charge the cap so the purse stays honest
-        cost = cap
-    append_jsonl(LEDGER, {"ts": ts, "kind": "model", "usd": round(float(cost), 4), "resident": resident,
-                          "session": res.get("session_id"), "turns": res.get("num_turns"), "subtype": res.get("subtype")})
+    res = run_claude(resident, sysprompt, brief, cap, effort)
+    cost = res.get("total_cost_usd"); cost = cap if cost is None else float(cost)
+    charge(cost)
+    append_jsonl(LEDGER, {"ts": ts, "kind": "model", "usd": round(cost, 4), "resident": resident, "session": res.get("session_id"), "turns": res.get("num_turns"), "subtype": res.get("subtype")})
     act = act_line(res.get("result", ""))
-    mode = "worked" if not res.get("is_error") or res.get("subtype") == "error_max_budget_usd" else "failed"
-    rec = {"ts": ts, "resident": resident, "mode": mode, "usd": round(float(cost), 4), "turns": res.get("num_turns"),
-           "minutes": round((res.get("duration_ms") or 0) / 60000, 1), "subtype": res.get("subtype"), "act": act}
+    mode = "worked" if (not res.get("is_error") or res.get("subtype") == "error_max_budget_usd") else "failed"
+    rec = {"ts": ts, "resident": resident, "mode": mode, "usd": round(cost, 4), "turns": res.get("num_turns"), "minutes": round((res.get("duration_ms") or 0) / 60000, 1), "subtype": res.get("subtype"), "act": act}
     append_jsonl(TICKS, rec)
-    os.makedirs("state/transcripts", exist_ok=True)
-    open(f"state/transcripts/{ts.replace(':', '')}-{resident}.txt", "w").write(res.get("result", "") or raw[-4000:])
+    os.makedirs(f"{STATE}/transcripts", exist_ok=True)
+    open(f"{STATE}/transcripts/{ts.replace(':', '')}-{resident}.txt", "w").write(res.get("result", "") or res.get("stderr", ""))
     if resident == "god" and os.path.exists(f"{STATE}/word.md"):
         w = open(f"{STATE}/word.md").read()
-        w = re.sub(r"^spoken:.*$", f"spoken: {ts}", w, count=1, flags=re.M)      # God invents times; the tick knows the real one
-        w = re.sub(r"\n+ACT:.*\s*$", "\n", w)                                    # the ACT line is for the page, not the word
+        w = re.sub(r"^spoken:.*$", f"spoken: {ts}", w, count=1, flags=re.M); w = re.sub(r"\n+ACT:.*\s*$", "\n", w)
         open(f"{STATE}/word.md", "w").write(w)
+    if resident in ("merchant", "steward"): open(f"{STATE}/inbox_seen", "w").write(str(time.time()))
     render_and_deploy()
-    g = git_commit_push(["state", "journal", "paths.json", "site"], f"{resident.title()} tick: {act}")
+    g = git_commit_push(["state", "journal", "paths.json", "site"], f"tick {len(ticks_today())} · {resident} · ${cost:.2f} · {act}")
     return finish(mode, resident, usd=rec["usd"], act=act, git=g)
-
 
 if __name__ == "__main__":
     sys.exit(main())

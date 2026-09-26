@@ -2,14 +2,15 @@
   "goal_usd": 1000000000,
   "budget": {
     "daily_usd": 25,
-    "tick_cap_usd": 4,
-    "floor_usd": 0.75,
+    "bucket_cap_usd": 8,
+    "tick_cap_usd": 6,
+    "min_cap_usd": 2,
     "fixed_daily_usd": 0
   },
   "cadence": {
-    "breath_seconds": 240,
+    "breath_seconds": 600,
     "dark_seconds": 120,
-    "asleep_seconds": 1800,
+    "empty_seconds": 900,
     "tick_timeout_seconds": 2700
   },
   "model": null,
@@ -18,12 +19,41 @@
   "repos": {
     "bricks": "/Users/aidan/Desktop/bricks",
     "obsolete-parts": "/Users/aidan/Desktop/the-google-of-obsolete-infrastructure-parts",
-    "mcp": "/Users/aidan/Desktop/small-business-intelligence-mcp"
+    "mcp": "/Users/aidan/Desktop/small-business-intelligence-mcp",
+    "scrapwatch": "/Users/aidan/Desktop/scrapwatch",
+    "hidden-markets": "/Users/aidan/Desktop/hidden-markets",
+    "onesite-auction": "/Users/aidan/Desktop/onesite-auction",
+    "dispensary-site": "/Users/aidan/Desktop/dispensary-site"
   },
-  "rotation": ["merchant", "mason", "merchant", "scout"],
   "daily": {
-    "god":     {"cap_usd": 1.5, "effort": "medium"},
-    "steward": {"cap_usd": 2.0, "effort": "medium"}
+    "god": {
+      "cap_usd": 1.5,
+      "effort": "medium"
+    },
+    "steward": {
+      "cap_usd": 2.0,
+      "effort": "medium"
+    }
   },
-  "deploy": {"vercel": true}
+  "deploy": {
+    "vercel": true
+  },
+  "court": {
+    "cap_usd": 1.0,
+    "effort": "medium",
+    "max_per_day": 6
+  },
+  "scout": {
+    "max_per_day": 2,
+    "min_ticks_between": 3
+  },
+  "sends": {
+    "daily_first_touch_cap": 20
+  },
+  "inbox": {
+    "mail_dir": "/Users/aidan/Library/Mail/V10/6D0E1957-F1F2-45E7-BFF1-E2710F2CCDE8/INBOX.mbox"
+  },
+  "brief": {
+    "resume_word_cap": 300
+  }
 }

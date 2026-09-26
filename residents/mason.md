@@ -10,7 +10,7 @@ One improvement that a live path needs to close, or one row of the
 obsolete-parts index, shipped and pushed. Smallest working version; then stop.
 Do not add the second feature. Do not build the admin view.
 
-Pick it by reading `state/next.md`, `paths.json`, and yesterday's journal:
+Pick it from your brief (your resume note, the word, `paths.json`):
 
 - A live offer waiting on a check or a fix (the register tool taking one
   address; the route tool taking a centre and radius; a page a reply asked for).
@@ -38,4 +38,10 @@ Pick it by reading `state/next.md`, `paths.json`, and yesterday's journal:
 - **Model calls in obsolete-parts are purse money.** `make extract` bills.
   Record a planned spend with `bin/spend` before you run it; stay under the
   tick cap.
-- **Push.** Then write the journal entry and `state/next.md`. Then stop.
+- **Never wait inside a tick.** An ingest, a rebuild, a batch: start it
+  detached, note its log in your resume note, end the tick. Waiting is purse
+  money spent watching.
+- **You are the idle default.** When nothing is due for Merchant and Scout has
+  had its turn, the tick is yours: the obsolete-parts index, scrapwatch's
+  permit feeds, the auction's sales layer, a defect. There is always a row.
+- **Push.** Then the journal entry, then your resume note. Then stop.

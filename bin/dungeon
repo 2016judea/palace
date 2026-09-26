@@ -1,21 +1,23 @@
 #!/bin/zsh
 # The loop. launchd keeps this alive; it wakes a resident, breathes, repeats.
-# When the laptop sleeps the loop pauses; when it wakes, the loop resumes where
-# it was, so the first thing Aidan sees on opening the lid is a tick starting.
+# Sleep pauses it; the lid opening resumes it. The purse (a token bucket) fills
+# while the lid is closed, so the first thing on opening is a burst of work.
 cd "$(dirname "$0")/.." || exit 1
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 LOG=$HOME/Library/Logs/palace.log
 echo "=== dungeon up $(date '+%F %T')" >> "$LOG"
+cfg() { /usr/bin/python3 -c "import json;print(json.load(open('palace.json'))['cadence']['$1'])"; }
 while true; do
   /usr/bin/python3 bin/tick >> "$LOG" 2>&1
   mode=$(/usr/bin/python3 -c "import json;print(json.load(open('state/last_tick.json')).get('mode','worked'))" 2>/dev/null)
   case "$mode" in
     ascended) echo "=== HEAVEN $(date '+%F %T')" >> "$LOG"; exit 0 ;;
-    dark)     s=$(/usr/bin/python3 -c "import json;print(json.load(open('palace.json'))['cadence']['dark_seconds'])") ;;
-    asleep)   s=$(/usr/bin/python3 -c "import json;print(json.load(open('palace.json'))['cadence']['asleep_seconds'])") ;;
-    busy)     s=60 ;;
+    dark)     s=$(cfg dark_seconds) ;;
+    empty)    s=$(cfg empty_seconds) ;;
     paused)   s=300 ;;
-    *)        s=$(/usr/bin/python3 -c "import json;print(json.load(open('palace.json'))['cadence']['breath_seconds'])") ;;
+    busy)     s=60 ;;
+    *)        # a petition waiting for God, or a reply due, does not wait out the breath
+              if /usr/bin/python3 bin/due | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);sys.exit(0 if d['petitions_pending'] or d['replies_new'] else 1)"; then s=20; else s=$(cfg breath_seconds); fi ;;
   esac
   sleep "$s"
 done

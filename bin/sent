@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Log first touches against the daily cap.   bin/sent <path-id> <n> <channel> [--kind first|followup|reply] [--by merchant]"""
+import sys, os, json, datetime as dt
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
+a = sys.argv[1:]; kind = a[a.index("--kind") + 1] if "--kind" in a else "first"; by = a[a.index("--by") + 1] if "--by" in a else "merchant"
+with open("state/sends.jsonl", "a") as f:
+    f.write(json.dumps({"ts": dt.datetime.now().isoformat(timespec="seconds"), "path": a[0], "n": int(a[1]), "channel": a[2], "kind": kind, "by": by}) + "\n")
+print("logged")
