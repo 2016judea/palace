@@ -72,7 +72,7 @@ def render(live=False):
     for p in sorted(glob.glob("state/court/ruled/*.md"), key=os.path.getmtime, reverse=True)[:6]:
         d, body = fm_split(open(p).read()); r = d.get("ruling", ""); 
         m = re.search(r"## Ruling\s*\n(.+?)(?:\n\s*\n|\Z)", body, re.S)
-        ruled.append((d.get("title") or os.path.basename(p)[11:-3], r.split(" ")[0] if r else "", (m.group(1).strip() if m else "")[:220]))
+        ruled.append((d.get("title") or os.path.basename(p)[11:-3], r.split(" ")[0] if r else "", re.sub(r"\*\*?", "", (m.group(1).strip() if m else ""))[:220]))
     paths = json.load(open("paths.json"))["paths"]
     jpath = f"journal/{day}.md" if os.path.exists(f"journal/{day}.md") else f"journal/{yday}.md"
     journal = open(jpath).read() if os.path.exists(jpath) else ""; jday = os.path.basename(jpath)[:-3] if journal else ""
