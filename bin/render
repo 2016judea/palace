@@ -59,7 +59,7 @@ def render(live=False):
     elif mode == "dark": light, cls = "no wifi · waiting", "dim"
     elif mode == "empty": light, cls = f"purse refilling · ${bal:.2f} of ${B['bucket_cap_usd']}", "dim"
     elif age_min is not None and age_min > 90: light, cls = "lid closed · they wake when it opens", "dim"
-    elif mode in ("worked", "failed", "busy", "dry"): light, cls = "green fields · between ticks", "green"
+    elif mode in ("worked", "cut", "failed", "busy", "dry"): light, cls = "green fields · between ticks", "green"
     else: light, cls = "not yet woken", "dim"
     seen = f"last tick {dt.datetime.fromisoformat(last['ts']).strftime('%-I:%M %p')}" if last.get("ts") else ""
     fm, word = fm_split(open("state/word.md").read() if os.path.exists("state/word.md") else "")

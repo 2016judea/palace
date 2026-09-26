@@ -58,7 +58,7 @@ def spent_today(): return sum(float(r.get("usd", 0)) for r in read_jsonl(LEDGER)
 # ---- who wakes -------------------------------------------------------------
 def due(): return json.loads(subprocess.run([sys.executable, "bin/due"], capture_output=True, text=True).stdout or "{}")
 def pick_resident(d):
-    worked = [t for t in ticks_today() if t.get("mode") == "worked"]
+    worked = [t for t in ticks_today() if t.get("mode") in ("worked", "cut")]
     names = [t["resident"] for t in worked]
     rulings_today = sum(1 for t in worked if t["resident"] == "court")
     if d.get("petitions_pending") and rulings_today < CFG["court"]["max_per_day"]: return "court"
@@ -207,13 +207,16 @@ def main():
     res = run_claude(resident, sysprompt, brief, cap, effort)
     cost = res.get("total_cost_usd"); cost = cap if cost is None else float(cost)
     charge(cost)
-    append_jsonl(LEDGER, {"ts": ts, "kind": "model", "usd": round(cost, 4), "resident": resident, "session": res.get("session_id"), "turns": res.get("num_turns"), "subtype": res.get("subtype")})
+    mu = next(iter((res.get("modelUsage") or {}).values()), {})
+    append_jsonl(LEDGER, {"ts": ts, "kind": "model", "usd": round(cost, 4), "resident": resident, "session": res.get("session_id"), "turns": res.get("num_turns"), "subtype": res.get("subtype"),
+                          "cache_create": mu.get("cacheCreationInputTokens"), "cache_read": mu.get("cacheReadInputTokens"), "output": mu.get("outputTokens"), "thinking": mu.get("thinkingTokens")})
     act = act_line(res.get("result", ""))
-    mode = "worked" if (not res.get("is_error") or res.get("subtype") == "error_max_budget_usd") else "failed"
+    mode = "cut" if res.get("subtype") == "error_max_budget_usd" else ("worked" if not res.get("is_error") else "failed")
     rec = {"ts": ts, "resident": resident, "mode": mode, "usd": round(cost, 4), "turns": res.get("num_turns"), "minutes": round((res.get("duration_ms") or 0) / 60000, 1), "subtype": res.get("subtype"), "act": act}
     append_jsonl(TICKS, rec)
     os.makedirs(f"{STATE}/transcripts", exist_ok=True)
     open(f"{STATE}/transcripts/{ts.replace(':', '')}-{resident}.txt", "w").write(res.get("result", "") or res.get("stderr", ""))
+    if mode == "cut": act = f"cut off at the ${cap:.2f} cap after {res.get('num_turns')} turn(s); the work of this tick is lost"
     if resident == "god" and os.path.exists(f"{STATE}/word.md"):
         w = open(f"{STATE}/word.md").read()
         w = re.sub(r"^spoken:.*$", f"spoken: {ts}", w, count=1, flags=re.M); w = re.sub(r"\n+ACT:.*\s*$", "\n", w)
