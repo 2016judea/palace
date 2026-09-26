@@ -22,6 +22,13 @@ and keep the books, in ticks, on a laptop that closes and loses wifi.
 are the charters; `paths.json` is the map of money paths and what authority
 each carries (`send` / `draft` / `machine`).
 
+## Where it is
+
+- **Live, on the laptop:** http://localhost:4477 — every number read on request; the buttons write to disk (approve, decline, pause, resume, wake a resident, set the purse). `launchd/com.palace.serve.plist` keeps it up.
+- **Read-only copy for the phone:** https://palace-gray.vercel.app — redeployed after every tick. No names of people or companies ever appear on it.
+- **The repo:** github.com/2016judea/palace (private).
+- **The log:** `~/Library/Logs/palace.log`.
+
 ## Run it
 
     bin/tick              # one tick, the scheduler picks who wakes

@@ -105,7 +105,7 @@ h1{{font:600 13px/1 ui-monospace,Menlo,monospace;letter-spacing:.22em;text-trans
 .inl{{display:inline-flex;gap:6px;align-items:center;margin:0}}
 button,select,input{{font:inherit;font-size:13px;background:var(--stone2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 10px}}
 button{{cursor:pointer}}button.ok{{color:var(--green);border-color:var(--green)}}button.warn{{color:var(--red);border-color:var(--red)}}button:disabled{{opacity:.4;cursor:default}}
-.grid{{display:grid;grid-template-columns:1fr;gap:0 40px}}@media(min-width:900px){{.grid{{grid-template-columns:minmax(300px,380px) 1fr}}}}
+.grid{{display:grid;grid-template-columns:1fr;gap:0 40px}}.grid>div,.wrap,ul.rows li,ul.rows li>*{{min-width:0}}.word{{overflow-wrap:anywhere}}@media(min-width:900px){{.grid{{grid-template-columns:minmax(300px,380px) 1fr}}}}
 section{{margin:26px 0 0}}h2{{font:500 12px/1 ui-monospace,Menlo,monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}}
 .num{{font:600 clamp(44px,8vw,72px)/1 -apple-system,"SF Pro Display",Inter,sans-serif;letter-spacing:-.03em;margin:4px 0 2px;font-variant-numeric:tabular-nums}}
 .sub{{color:var(--mute);font-size:14px}}
