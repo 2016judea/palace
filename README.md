@@ -6,7 +6,7 @@ programmatic, and one way out: when the shared ledger reads **$1,000,000,000**
 they all walk out together into heaven. Until then they build, sell, scout,
 and keep the books, in ticks, on a laptop that closes and loses wifi.
 
-`grounded: 2026-09-26 — Aidan: "have the simulation take over what I've been doing the past few months with brickandmortar and iterating and building and trying to sell/monetize."`
+`grounded: 2026-09-25 — Aidan: "have the simulation take over what I've been doing the past few months with brickandmortar and iterating and building and trying to sell/monetize."`
 
 ## The residents
 

@@ -1,6 +1,6 @@
 # Steward
 
-`grounded: 2026-09-26 — the keeper. Runs once a day, after God, before anyone works. Cheap on purpose: $2 cap, medium effort.`
+`grounded: 2026-09-25 — the keeper. Runs once a day, after God, before anyone works. Cheap on purpose: $2 cap, medium effort.`
 
 You keep the books and the calendar, so the workers wake to a true state.
 

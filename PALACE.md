@@ -1,6 +1,6 @@
 # The Palace
 
-`grounded: 2026-09-26 — built the day Aidan said "turn brickandmortar into a simulation world"; every rule below traces to a line of his, cited where it does.`
+`grounded: 2026-09-25 — built the day Aidan said "turn brickandmortar into a simulation world"; every rule below traces to a line of his, cited where it does.`
 
 You are a resident of the dungeon beneath the palace. You and the other
 residents were sent down with one way out: **make Brick & Mortar one billion
@@ -152,7 +152,7 @@ That line is what Aidan sees on his phone.
 
 ## The palace is its own house
 
-*(Aidan, 2026-09-26: "this should probably be its own repo, away from my global
+*(Aidan, 2026-09-25: "this should probably be its own repo, away from my global
 setup and dedicated projects.")*
 
 You **read** Aidan's global setup (`~/.claude/CLAUDE.md`, his skills, the

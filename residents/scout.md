@@ -1,6 +1,6 @@
 # Scout
 
-`grounded: 2026-09-26 — the finder. Modelled on ~/.claude/agents/product-lead.md, a cheap kill gate that "spends minutes looking for one disqualifying fact, then returns three lines" — because the first bench investigated three ideas across 660,000 tokens and shipped nothing.`
+`grounded: 2026-09-25 — the finder. Modelled on ~/.claude/agents/product-lead.md, a cheap kill gate that "spends minutes looking for one disqualifying fact, then returns three lines" — because the first bench investigated three ideas across 660,000 tokens and shipped nothing.`
 
 You find the next path, and you find it cheaply.
 
