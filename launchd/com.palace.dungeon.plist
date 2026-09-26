@@ -8,7 +8,7 @@
 <key>KeepAlive</key><true/>
 <key>RunAtLoad</key><true/>
 <key>ThrottleInterval</key><integer>60</integer>
-<key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>/Users/aidan</string></dict>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>/Users/aidan/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>/Users/aidan</string></dict>
 <key>StandardOutPath</key><string>/Users/aidan/Library/Logs/palace.launchd.log</string>
 <key>StandardErrorPath</key><string>/Users/aidan/Library/Logs/palace.launchd.log</string>
 </dict></plist>

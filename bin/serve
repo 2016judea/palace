@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The palace, live, on the laptop: http://localhost:4477
 Reads state on every request; the buttons write to disk. launchd keeps it up."""
-import os, sys, json, glob, html, re, shutil, subprocess, datetime as dt, importlib.util
+import os, sys, json, glob, html, re, shutil, subprocess, datetime as dt, importlib.util, importlib.machinery
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)

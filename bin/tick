@@ -229,6 +229,11 @@ def main():
     append_jsonl(TICKS, rec)
     os.makedirs("state/transcripts", exist_ok=True)
     open(f"state/transcripts/{ts.replace(':', '')}-{resident}.txt", "w").write(res.get("result", "") or raw[-4000:])
+    if resident == "god" and os.path.exists(f"{STATE}/word.md"):
+        w = open(f"{STATE}/word.md").read()
+        w = re.sub(r"^spoken:.*$", f"spoken: {ts}", w, count=1, flags=re.M)      # God invents times; the tick knows the real one
+        w = re.sub(r"\n+ACT:.*\s*$", "\n", w)                                    # the ACT line is for the page, not the word
+        open(f"{STATE}/word.md", "w").write(w)
     render_and_deploy()
     g = git_commit_push(["state", "journal", "paths.json", "site"], f"{resident.title()} tick: {act}")
     return finish(mode, resident, usd=rec["usd"], act=act, git=g)

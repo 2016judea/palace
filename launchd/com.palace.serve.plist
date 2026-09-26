@@ -2,9 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>com.palace.serve</string>
-<key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>/Users/aidan/Desktop/palace/bin/serve</string></array>
+<key>ProgramArguments</key><array><string>/bin/zsh</string><string>-c</string><string>/usr/bin/python3 /Users/aidan/Desktop/palace/bin/serve</string></array>
+<!-- zsh is the launchd program on purpose: it holds Full Disk Access; python3 does not (TCC). Same pattern as bricks su_run.sh. -->
 <key>KeepAlive</key><true/><key>RunAtLoad</key><true/>
-<key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>/Users/aidan</string></dict>
+<key>EnvironmentVariables</key><dict><key>PATH</key><string>/Users/aidan/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string><key>HOME</key><string>/Users/aidan</string></dict>
 <key>StandardOutPath</key><string>/Users/aidan/Library/Logs/palace.serve.log</string>
 <key>StandardErrorPath</key><string>/Users/aidan/Library/Logs/palace.serve.log</string>
 </dict></plist>
