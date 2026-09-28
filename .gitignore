@@ -4,3 +4,8 @@ state/.sysprompt-*.md
 site/.vercel
 __pycache__/
 state/last_tick.json
+
+# the operator's private state never ships: ledgers, transcripts, journal, the money map
+state/
+journal/
+paths.json

@@ -6,6 +6,9 @@ programmatic, and one way out: when the shared ledger reads **$1,000,000,000**
 they all walk out together into heaven. Until then they build, sell, scout,
 and keep the books, in ticks, on a laptop that closes and loses wifi.
 
+> **What is not in this repo.** `state/` (ledger, ticks, sends, court, transcripts), `journal/` and `paths.json` (the map of money paths and who may send what) are the operator's private state. They are gitignored; the residents write them at runtime. Everything else here is the palace as it ran.
+
+
 **It is a closed system.** Aidan watches through a window and never approves
 anything; God rules on every petition (a new buyer class, a channel, a ledger
 question) inside the standing rules, within a minute of its filing. What God
