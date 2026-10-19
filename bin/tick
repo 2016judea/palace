@@ -173,8 +173,23 @@ def act_line(text):
     if m: return m[-1].strip()[:160]
     first = (text or "").strip().splitlines(); return (first[0][:160] if first else "(no report)")
 
+def addable(paths):
+    """The paths git will actually stage. state/, journal/ and paths.json left the tree at the public
+    release (.gitignore) and exist only once a resident writes them; `git add` given a path that is
+    not there fails the WHOLE list (fatal: pathspec, exit 128), so on a fresh clone site/index.html
+    was never committed and the tick reported 'clean'. An ignored path only warns, but skip it too."""
+    out = []
+    for p in paths:
+        if not os.path.exists(p): continue
+        if subprocess.run(["git", "check-ignore", "-q", p], capture_output=True).returncode == 0: continue
+        out.append(p)
+    return out
+
 def git_commit_push(paths, msg):
-    subprocess.run(["git", "add", "--"] + paths, capture_output=True)
+    paths = addable(paths)
+    if not paths: return "clean"
+    add = subprocess.run(["git", "add", "--"] + paths, capture_output=True, text=True)
+    if add.returncode != 0: return f"add failed: {add.stderr.strip()[-200:]}"
     if subprocess.run(["git", "diff", "--cached", "--quiet"]).returncode == 0: return "clean"
     subprocess.run(["git", "commit", "-q", "-m", msg], capture_output=True)
     p = subprocess.run(["git", "push", "-q"], capture_output=True, text=True)
