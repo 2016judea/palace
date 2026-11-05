@@ -110,12 +110,12 @@ Anything with a price on it is money and stays shut.
 
 ## Working in the repos
 
-- **bricks** (`/Users/aidan/Desktop/bricks`): read its `CLAUDE.md` before any
+- **bricks** (`/Users/aidan/Desktop/workspace/bricks`): read its `CLAUDE.md` before any
   change. Aidan's own sessions work it at once. Anything longer than one edit
   takes a worktree (`scripts/worktree.sh new <name>` … `done`). Commit by path.
   Two suites: `make test` and `cd website && npm test`. Pages are generated;
   edit the generator. Its memory is at
-  `~/.claude/projects/-Users-aidan-Desktop-bricks/memory/` — `MEMORY.md` there
+  `~/.claude/projects/-Users-aidan-Desktop-workspace-bricks/memory/` — `MEMORY.md` there
   first on any bricks work. **The freeze:** until 2026-11-24 nothing new is
   built in bricks unless a live offer needs it to close; a wish is one line in
   `~/Desktop/ideas/BACKLOG.md`.

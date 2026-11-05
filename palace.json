@@ -17,13 +17,13 @@
   "effort": "high",
   "timezone": "America/Chicago",
   "repos": {
-    "bricks": "/Users/aidan/Desktop/bricks",
-    "obsolete-parts": "/Users/aidan/Desktop/the-google-of-obsolete-infrastructure-parts",
-    "mcp": "/Users/aidan/Desktop/small-business-intelligence-mcp",
-    "scrapwatch": "/Users/aidan/Desktop/scrapwatch",
-    "hidden-markets": "/Users/aidan/Desktop/hidden-markets",
+    "bricks": "/Users/aidan/Desktop/workspace/bricks",
+    "obsolete-parts": "/Users/aidan/Desktop/workspace/the-google-of-obsolete-infrastructure-parts",
+    "mcp": "/Users/aidan/Desktop/workspace/small-business-intelligence-mcp",
+    "scrapwatch": "/Users/aidan/Desktop/workspace/scrapwatch",
+    "hidden-markets": "/Users/aidan/Desktop/workspace/hidden-markets",
     "onesite-auction": "/Users/aidan/Desktop/onesite-auction",
-    "dispensary-site": "/Users/aidan/Desktop/dispensary-site"
+    "dispensary-site": "/Users/aidan/Desktop/workspace/dispensary-site"
   },
   "daily": {
     "god": {

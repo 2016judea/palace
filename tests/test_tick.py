@@ -1,7 +1,7 @@
 """bin/tick's commit step, driven against a throwaway git repo shaped like a fresh clone after the
 public release: state/ written by a resident but ignored, journal/ and paths.json not yet written,
 site/index.html tracked. No model is run.
-Run: /Users/aidan/Desktop/bricks/.venv/bin/python -m pytest tests"""
+Run: /Users/aidan/Desktop/workspace/bricks/.venv/bin/python -m pytest tests"""
 import importlib.machinery, importlib.util, os, subprocess
 import pytest
 

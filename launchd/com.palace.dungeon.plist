@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>com.palace.dungeon</string>
-<key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/aidan/Desktop/palace/bin/dungeon</string></array>
+<key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/aidan/Desktop/workspace/palace/bin/dungeon</string></array>
 <!-- KeepAlive: the loop is always alive; sleep pauses it and wake resumes it, so the
      lid opening is what starts the next tick. RunAtLoad: green fields at login. -->
 <key>KeepAlive</key><true/>

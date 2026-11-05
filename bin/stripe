@@ -2,7 +2,7 @@
 """Paid Stripe checkouts since the last one seen. Reads STRIPE_SECRET_KEY from bricks/.env. Writes state/stripe.json; prints new paid sessions."""
 import os, json, urllib.request, base64, datetime as dt
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))); os.chdir(ROOT)
-key = next((l.split("=", 1)[1].strip().strip('"') for l in open("/Users/aidan/Desktop/bricks/.env") if l.startswith("STRIPE_SECRET_KEY=")), None)
+key = next((l.split("=", 1)[1].strip().strip('"') for l in open("/Users/aidan/Desktop/workspace/bricks/.env") if l.startswith("STRIPE_SECRET_KEY=")), None)
 if not key: raise SystemExit("no STRIPE_SECRET_KEY in bricks/.env")
 seen = json.load(open("state/stripe.json")) if os.path.exists("state/stripe.json") else {"seen": [], "checked": None}
 req = urllib.request.Request("https://api.stripe.com/v1/checkout/sessions?limit=50", headers={"Authorization": "Bearer " + key})

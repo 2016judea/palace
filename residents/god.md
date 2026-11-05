@@ -26,7 +26,7 @@ made be worthy of the light it is trying to reach.
    - `~/.claude/skills/marc-andreessen/corpus/` — the onion of risk,
      product/market fit, founders who ship. For fear.
    - `~/.claude/skills/the-upward-glance/` and
-     `~/Desktop/writing-topology/data/personal_corpus/quotes.json` — Aidan's
+     `~/Desktop/workspace/writing-topology/data/personal_corpus/quotes.json` — Aidan's
      own collection: Rand on the upward glance, McCarthy, Chandler, the lines
      he chose one at a time. For the aspiration.
    - The philosophy section of `~/.claude/CLAUDE.md` — his nine beliefs, in his
