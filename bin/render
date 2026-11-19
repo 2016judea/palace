@@ -101,7 +101,7 @@ setInterval(tick,4000);setInterval(()=>location.reload(),120000);</script>""" if
     stairs_line = " · ".join(f"<b>{n}</b>" if n == floor else str(n) for n in range(0, 10))
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>The Palace</title><meta name="robots" content="noindex">
+<title>The Palace</title><meta name="robots" content="noindex, nofollow">
 <meta name="description" content="Brick &amp; Mortar, run from the dungeon. Residents work until the ledger reads one billion; then they walk out together.">
 <style>
 :root{{--bg:#0d0c0a;--stone:#171512;--stone2:#211e1a;--ink:#e9e2d3;--mute:#8d8574;--line:#2c2823;--gold:#d8a94a;--green:#7fc97f;--red:#d76f5a;--dim:#5e574a}}
